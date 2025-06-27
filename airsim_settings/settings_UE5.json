@@ -1,0 +1,51 @@
+{
+  "SeeDocsAt": "https://cosys-lab.github.io/settings/",
+  "SettingsVersion": 2.0,
+  "CameraDefaults": {
+      "CaptureSettings": [
+        {
+          "ImageType": 0,
+          "Width": 1080,
+          "Height": 1920,
+          "FOV_Degrees": 120,
+          "AutoExposureSpeed": 100,
+          "AutoExposureBias": 1,
+          "AutoExposureMaxBrightness": 0.6,
+          "AutoExposureMinBrightness": 0.03,
+          "MotionBlurAmount": 0,
+          "MotionBlurMax": 0,
+          "ChromaticAberrationScale": 0,
+          "LumenGIEnable": false,
+          "LumenReflectionEnable": false,
+          "TargetGamma": 1,
+          "LumenFinalQuality": 2,
+          "LumenSceneDetail": 4,
+          "LumenSceneLightningDetail": 2
+        }
+    ]
+  },
+  "SimMode": "ComputerVision",
+  "Vehicles": {
+        "Drone1": {
+            "VehicleType": "ComputerVision",
+            "AutoCreate": true,
+            "Sensors": {
+                "GPULidar1": { 
+                    "SensorType": 6,
+                    "Enabled" : true,
+                    "NumberOfChannels": 100,
+                    "RotationsPerSecond": 10,
+                    "MeasurementsPerCycle": 512,
+                    "X": 0, "Y": 0, "Z": 0,
+                    "Roll": 0, "Pitch": 0, "Yaw" : 0,
+                    "Range": 100,
+                    "VerticalFOVUpper": 0,
+                    "VerticalFOVLower": -180,
+                    "HorizontalFOVStart": -90,
+                    "HorizontalFOVEnd": 90,
+                    "DrawDebugPoints": false
+                }
+            }
+        }
+   }
+}
