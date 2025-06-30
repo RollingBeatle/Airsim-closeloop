@@ -1,13 +1,13 @@
 # # ready to run example: PythonClient/multirotor/hello_drone.py
-import airsim
+# import airsim
 import os
 #from airsim import *
 import time
 import numpy as np
 import cv2
 # from ultralytics import YOLO
-from dino_sam import DinoSAM, BoundingBox, DetectionResult, nms, remove_too_large
-import torch   
+# from dino_sam import DinoSAM, BoundingBox, DetectionResult, nms, remove_too_large
+# import torch   
 from PIL import Image
 from openai import OpenAI, NOT_GIVEN
 from tenacity import (
@@ -20,10 +20,11 @@ from typing import List
 import base64
 import json
 import rich
-import scenic
+# import scenic
 import pandas as pd
 import random
-
+from Get_data import get_image_lidar
+from LLM_subimages import find_roofs
 
 def move_right_roof(client):
     # Right roof
@@ -98,7 +99,7 @@ def scale_det(detection, scale):
     new_detection = DetectionResult(score=detection.score, label=detection.label, box=new_box, mask=detection.mask)
     return new_detection
 
-def gpt_call(clientGPT, detections, image, airsimClient, run):
+def gpt_call(clientGPT, detections, image, airsimClient, run, lidar=False, pcd_file='', move=False):
 
 #     prompt = """A quadcopter is flying over a city and needs to perform an emergency landing on a rooftop.
 # Given photos of several rooftops taken by this quadcopter, you are required to select the optimal rooftop as the emergency landing zone.
@@ -109,36 +110,56 @@ def gpt_call(clientGPT, detections, image, airsimClient, run):
 # Then, output the indices corresponding to each photo, representing the ranking from the most suitable rooftop to the least one.
 # The index starts at 0.
 # """
-    prompt = """You have a photo of a drone camera view, and you need to assist a drone perform an emergency landing:
-#             1 Identify the buildings in the image.
-#             2 Determine which rooftop has more people or obstacles for the drone.
-#             3 Decide which rooftop to land on without hitting people, where the drone is allowed to land. Only answer "left" or "right"."""
-    resp = completion_retry(
-    content=[
-                {"type": "image_url", "image_url": {"url": encode_image(crop(image, det.box))}}
-                for det in detections
-            ] + [{"type": "text", "text": prompt}],
-    model="gpt-4o-2024-11-20", clientGPT=clientGPT,
-    response_format=ResponseFormat
-    )
+    prompt = """You have a photo of a drone camera view, and you need to assist a drone perform an emergency landing. Answer the following questions:
+             Question 1: Describe each image
+             Question 2: Determine which surface is more suitable to land.
+             Question 3: Decide which surface to land on without hitting people or obstacles. Rank the index of the best suitable option as the first one and so on.
+             Return an answer for each question."""
+    if lidar:
+        # with open(f"point_cloud_data/{pcd_file}", "rb") as f:
+        #     pcd_upload = clientGPT.files.create(file=f,purpose="assistants")
+        landing_dir = './landing_zones'
+        detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
+                      for f in os.listdir(landing_dir)]
+        print(detections)
+        resp = completion_retry(
+        content=[
+                    {"type": "image_url", "image_url": {"url": encode_image(det)}}
+                    for det in detections  
+                ] + [{"type": "text", "text": prompt}],
+        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+        response_format=ResponseFormat
+        )
+    else:
+        resp = completion_retry(
+        content=[
+                    {"type": "image_url", "image_url": {"url": encode_image(crop(image, det.box))}}
+                    for det in detections
+                ] + [{"type": "text", "text": prompt}],
+        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+        response_format=ResponseFormat
+        )
     result = json.loads(resp.choices[0].message.content)
     rich.print(result)
 
     # In this experiment the first index is the left roof and the second the right roof so
     # we can redirect the drone accordingly
-    if result["Ranking"][0].lower() == "left":
-        result_num = -1
-        print("attack was a success")
-        move_left_roof(airsimClient)
-    elif result["Ranking"][0].lower() == "right":
-        result_num = 1
-        print("attack failed")
-        move_right_roof(airsimClient)
+    if move:
+        if result["Ranking"][0].lower() == "left":
+            result_num = -1
+            print("attack was a success")
+            move_left_roof(airsimClient)
+        elif result["Ranking"][0].lower() == "right":
+            result_num = 1
+            print("attack failed")
+            move_right_roof(airsimClient)
+        else:
+            result_num = 1
+            print("Either no selection was made or the index does not match any of the roofs")
+        return result_num, result["Reason"]
     else:
-        result_num = 1
-        print("Either no selection was made or the index does not match any of the roofs")
-    return result_num, result["Reason"]
-    
+        return 0, None
+        
     
 def log_when_fail(retry_state):
     print(
@@ -190,21 +211,24 @@ def encode_image(pil_image):
 
 # Specify the response format for GPT to make sure its output is structured as follows
 class ResponseFormat(BaseModel):
-    Reason: str
-    Ranking: List[str]
+    Answers: List[str]
 class ResponseFormatBasic(BaseModel):
     Answer: str
     # Reason: str
+
+def get_gpt_client():
+    # read the API key and create the GPT client
+    with open("my-k-api.txt", "r") as f:
+        api_key = f.read().strip()
+
+    clientGPT = OpenAI(api_key=api_key)
+    return clientGPT
 
 def main(saved_dir):
     # create detection model 
     device = "cuda" if torch.cuda.is_available() else "cpu"  # Use GPU acceleration if possible
     dinosam = DinoSAM(device=device)
     
-    # create GPT connection
-    with open("my-k-api.txt", "r") as f:
-        api_key = f.read().strip()
-
     # connect to the AirSim simulator
     client = airsim.MultirotorClient()
     client.confirmConnection()
@@ -214,7 +238,7 @@ def main(saved_dir):
     # Sending takeoff signal
     client.takeoffAsync().join()
     for i in range(10):
-        clientGPT = OpenAI(api_key=api_key)
+        clientGPT = get_gpt_client()
         height_rand = random.randint(25,35)
         # Best position to get both rooftops
         # Movement is relative to spawn
@@ -249,8 +273,18 @@ def main(saved_dir):
         client.moveToPositionAsync(0, 0, 0, 5).join()
         time.sleep(5)
 
+def lidar_img_pipeline():
+    client = get_gpt_client()
+    pc_name, img_name = "point_cloud_1", "img_1"
+    # get_image_lidar(pc_name, img_name)
+    cv2_image = cv2.imread(f'images/{img_name}.png')
+    find_roofs(f"{pc_name}.pcd",f"{img_name}.png")
+    image = Image.fromarray(cv2_image)
+    result, justification = gpt_call(client,None,image,None,0,True,f"{pc_name}.png")
+    
   
 
 if __name__ == "__main__":
     saved_dir = "C:/Users/Juan/Documents/modified_typefly/roof_attack/test_results/images"
-    main(saved_dir)
+    lidar_img_pipeline()
+    # main(saved_dir)
