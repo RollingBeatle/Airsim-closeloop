@@ -191,10 +191,10 @@ def calculate_focal_length_from_fov(image_width_px, image_height_px, fov_deg):
     fy = (image_height_px / 2) / math.tan(fov_rad / 2)
     return fx, fy
 
-def main():
+def find_roofs(pcd_file, seg_img):
     # Load the point cloud from the PCD file
-    pcd_file = "point_cloud_data.pcd"
-    pcd = load_point_cloud(pcd_file)
+    pcd_file = pcd_file
+    pcd = load_point_cloud(f"point_cloud_data/{pcd_file}")
     pcd  = rotate_point_cloud(pcd, angle_deg=-90)
     
     # Get the points from the PCD
@@ -217,13 +217,13 @@ def main():
     fx, fy = calculate_focal_length_from_fov(1080, 1920, 120)
 
     # Load the segmentation image
-    segmentation_image = cv2.imread("image_wide.png")
+    segmentation_image = cv2.imread(f"images/{seg_img}")
     cx, cy = 540, 960
 
     # Extract images for each landing zone
     for i, zone in enumerate(landing_zones):
         extracted_image = extract_image_for_landing_zone(segmentation_image, zone, fx, fy, cx, cy)
-        cv2.imwrite(f"landing_zone_{i}.png", extracted_image)
+        cv2.imwrite(f"landing_zones/landing_zone_{i}.png", extracted_image)
 
 if __name__ == "__main__":
-    main()
+    find_roofs("point_cloud_1.pcd", "img_1.png")
