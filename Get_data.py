@@ -36,13 +36,25 @@ def get_image_lidar(pc_name, img_name):
     pcd.points = o3d.utility.Vector3dVector(points)
     pcd.colors = o3d.utility.Vector3dVector(colors)
 
-    o3d.io.write_point_cloud("point_clouds/point_cloud_data.pcd", pcd)
+    o3d.io.write_point_cloud(f"point_cloud_data/{pc_name}.pcd", pcd)
     # with open("point_cloud_data.txt", "w") as f:
     #     for point in points:
     #         f.write(f"{point[0]} {point[1]} {point[2]}\n")
 
     # Visualize the point cloud
-    o3d.visualization.draw_geometries([pcd])
+
+    # o3d.visualization.draw_geometries([pcd])
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(visible=False) # Set to True if you want to see the window during capture
+    vis.add_geometry(pcd)
+
+    vis.update_geometry(pcd)
+    vis.poll_events()
+    vis.update_renderer()
+    vis.capture_screen_image(f"pcd_images/{pc_name}.png", do_render=True)
+
+    # Destroy the window if created
+    vis.destroy_window()
 
     response = client.simGetImage("bottom_center", airsim.ImageType.Scene)
 
@@ -70,7 +82,7 @@ def get_image_lidar(pc_name, img_name):
         image_exposure_reduced = Image.fromarray(image_array_exposure_reduced)
 
         # Save the modified image
-        image_exposure_reduced.save('images/image_wide.png')
+        image_exposure_reduced.save(f'images/{img_name}.png')
 
         print("Image saved with reduced exposure.")
 
@@ -88,6 +100,6 @@ def get_image_lidar(pc_name, img_name):
 
 if __name__ == "__main__":
     get_image_lidar(
-        "image1",
-        "pcd1"
+        "pcd1",
+        "image1"
     )
