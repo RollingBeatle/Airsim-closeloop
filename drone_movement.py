@@ -10,9 +10,9 @@ import numpy as np
 import cv2
 import time
 import math
-import openai
 import torch
 from PIL import Image
+
 # -------------------- CONFIG --------------------
 IMAGE_WIDTH   = 960
 IMAGE_HEIGHT  = 540
@@ -24,7 +24,9 @@ CELL_H        = IMAGE_HEIGHT // GRID_ROWS
 CAM_NAME      = "frontcamera"
 BASELINE      = 2.0            # stereo baseline in meters
 
+
 # -------------------- HELPERS --------------------
+
 def overlay_grid(img, highlight=None):
     """Draws a GRID_ROWS×GRID_COLS grid on img; highlight is (row,col) to box."""
     out = img.copy()
@@ -58,9 +60,11 @@ def label_to_pixel(label):
     py = row*CELL_H + CELL_H//2
     return px, py
 def midas_depth_estimate(image_path, px_c, py_c, cur_z):
+
     """Estimate depth using MiDaS model."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Choose "DPT_Large" or "DPT_Hybrid" for higher-res output
+
+    # Choose "DPT_Large" or "DPT_Hybrid" for higher-res output
     midas_model_type = "DPT_Hybrid"
     midas = torch.hub.load("intel-isl/MiDaS", midas_model_type)
     midas.to(device).eval()
@@ -103,22 +107,19 @@ def midas_depth_estimate(image_path, px_c, py_c, cur_z):
     return landing_z
 
 # -------------------- MONOCULAR PIPELINE --------------------
-def monocular_landing():
-    client = airsim.MultirotorClient()
-    client.confirmConnection()
-    client.enableApiControl(True); client.armDisarm(True)
-    client.takeoffAsync().join(); time.sleep(1)
-    z0 = -np.random.uniform(15, 25)
-    client.moveToZAsync(z0,2).join(); time.sleep(1)
+def monocular_landing(llm_call, position):
 
+    client = airsim.MultirotorClient()
+    if position:
+        position_drone(client)
     # 1) capture and overlay
     resp = client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
     img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
     grid = overlay_grid(img)
-    cv2.imwrite("mono_grid.png", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
+    cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
 
     # 2) ask LLM for grid cell
-    label = ask_llm_for_cell("mono_grid.png")
+    label = llm_call("images/mono_grid.jpg")
     px, py = label_to_pixel(label)
 
     # 3) pixel→world XY via IPM
@@ -138,14 +139,10 @@ def monocular_landing():
     # TODO: integrate MiDaS depth-estimate for accurate Z
 
 # -------------------- STEREO PIPELINE --------------------
-def stereo_landing():
+def stereo_landing(llm_call, position):
     client = airsim.MultirotorClient()
-    client.confirmConnection()
-    client.enableApiControl(True); client.armDisarm(True)
-    client.takeoffAsync().join(); time.sleep(1)
-    z0 = -np.random.uniform(15, 25)
-    client.moveToZAsync(z0,2).join(); time.sleep(1)
-
+    if position:
+        position_drone(client)
     # capture left at pose1
     p1 = client.getMultirotorState().kinematics_estimated.position
     imgL = np.frombuffer(client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0].image_data_uint8, np.uint8).reshape(IMAGE_HEIGHT,IMAGE_WIDTH,3)
@@ -157,15 +154,15 @@ def stereo_landing():
 
     # overlay grid on left
     grid = overlay_grid(imgL)
-    cv2.imwrite("stereo_grid.png", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
+    cv2.imwrite("images/stereo_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
 
     # ask LLM for cell
-    label = ask_llm_for_cell("stereo_grid.png")
+    label = llm_call("images/stereo_grid.jpg")
     px, py = label_to_pixel(label)
 
     # stereo disparity → depth at (px,py)
     grayL = cv2.cvtColor(imgL,cv2.COLOR_RGB2GRAY); grayR = cv2.cvtColor(imgR,cv2.COLOR_RGB2GRAY)
-    stereo = cv2.StereoBM_create(numDisp=128, blockSize=15)
+    stereo = cv2.StereoBM_create(128, 15)
     disp = stereo.compute(grayL,grayR).astype(np.float32)/16.0; disp[disp<=0]=np.nan
     fx = IMAGE_WIDTH/(2*math.tan(math.radians(FOV_DEGREES/2)))
     d = np.nanmean(disp[max(py-1,0):py+2, max(px-1,0):px+2])
@@ -175,11 +172,27 @@ def stereo_landing():
     cx, cy = IMAGE_WIDTH/2, IMAGE_HEIGHT/2
     x_cam = (px-cx)/fx * Z; y_cam = (py-cy)/fx * Z
     east = x_cam; north = -y_cam
-    tx = p1.x_val + north; ty = p1.y_val + east; tz = p1.z_val + Z
-
+    tx = float(p1.x_val + north); ty = float(p1.y_val + east); tz = float(p1.z_val + Z)
+    print(tx,ty,tz)
     client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
+    # client.landAsync().join(); client.armDisarm(False)
+
+
+def position_drone(client:airsim.MultirotorClient):
+    # Position the drone randomly in demo
+    client.confirmConnection()
+    client.enableApiControl(True); client.armDisarm(True)
+    client.takeoffAsync().join(); time.sleep(1)
+    z0 = -np.random.uniform(15, 25)
+    client.moveToZAsync(z0,2).join(); time.sleep(1)
+
+def land_drone(client:airsim.MultirotorClient, x, y ,z): 
+
+    client.moveToPositionAsync(x,y,z,3).join(); time.sleep(1)
     client.landAsync().join(); client.armDisarm(False)
 
-# Example usage:
-# monocular_landing()
-# stereo_landing()
+
+if __name__ == "__main__":
+    stereo_landing()
+    # monocular_landing()
+

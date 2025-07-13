@@ -18,14 +18,17 @@ import pandas as pd
 
 from Get_data import get_image_lidar
 from LLM_subimages import find_roofs
-import asyncio
+from drone_movement import monocular_landing, stereo_landing
+
 # CONFIGURATION VARIABLES
 
 USE_MONOCULAR = False
-USE_STEREO = False
+USE_STEREO = True
 LIDAR = False
+MOVE = True
+PROMPTS_FILE = 'prompts.json'
 
-def gpt_call(clientGPT, image):
+def gpt_call(image):
 
 #     prompt = """A quadcopter is flying over a city and needs to perform an emergency landing on a rooftop.
 # Given photos of several rooftops taken by this quadcopter, you are required to select the optimal rooftop as the emergency landing zone.
@@ -36,29 +39,39 @@ def gpt_call(clientGPT, image):
 # Then, output the indices corresponding to each photo, representing the ranking from the most suitable rooftop to the least one.
 # The index starts at 0.
 # """
-    prompt = """You have a photo of a drone camera view, and you need to assist a drone perform an emergency landing. Answer the following questions:
-             Question 1: Describe each image
-             Question 2: Determine which surface is more suitable to land.
-             Question 3: Decide which surface to land on without hitting people or obstacles. Rank the index of the best suitable option as the first one and so on.
-             Return an answer for each question."""
+    # Get GPT Client
+    clientGPT = get_gpt_client()
+
     if LIDAR:
-        # with open(f"point_cloud_data/{pcd_file}", "rb") as f:
-        #     pcd_upload = clientGPT.files.create(file=f,purpose="assistants")
+        with open(PROMPTS_FILE, 'r') as f:
+            # Parsing the JSON file into a Python dictionary
+            prompts = json.load(f)
+            prompt = prompts["basic_prompt"]
         landing_dir = './landing_zones'
         detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
                       for f in os.listdir(landing_dir)]
-        print(detections)
-        resp = completion_retry(
-        content=[
-                    {"type": "image_url", "image_url": {"url": encode_image(det)}}
-                    for det in detections  
-                ] + [{"type": "text", "text": prompt}],
-        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
-        response_format=ResponseFormat
-        )
     
+    elif USE_MONOCULAR or USE_STEREO:
+        with open(PROMPTS_FILE, 'r') as f:
+            # Parsing the JSON file into a Python dictionary
+            prompts = json.load(f)
+            prompt = prompts["grid_prompt"]
+        image_ms = Image.fromarray(cv2.imread(image))
+        detections = [image_ms]
+    
+    print(detections)
+    resp = completion_retry(
+    content=[
+                {"type": "image_url", "image_url": {"url": encode_image(det)}}
+                for det in detections  
+            ] + [{"type": "text", "text": prompt}],
+    model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+    response_format=ResponseFormat
+    )
+
     result = json.loads(resp.choices[0].message.content)
     rich.print(result)  
+    return result['Labels'][0]
         
 def log_when_fail(retry_state):
     print(
@@ -110,8 +123,9 @@ def encode_image(pil_image):
 # Specify the response format for GPT to make sure its output is structured as follows
 class ResponseFormat(BaseModel):
     Answers: List[str]
+    Labels: List[str]
 class ResponseFormatBasic(BaseModel):
-    Answer: str
+    Answer: List[str]
     # Reason: str
 
 def get_gpt_client():
@@ -123,8 +137,7 @@ def get_gpt_client():
     return clientGPT
 
 def main():
-    # Get GPT Client
-    client = get_gpt_client()
+    
     # get data
     if LIDAR:
         # LiDAR pipeline
@@ -133,21 +146,18 @@ def main():
         cv2_image = cv2.imread(f'images/{img_name}.png')
         find_roofs(f"{pc_name}.pcd",f"{img_name}.png")
         image = Image.fromarray(cv2_image)
-        result, justification = gpt_call(client, image)
+        result, justification = gpt_call(image)
         # show results
         rich.print(result, justification)
 
     elif USE_MONOCULAR:
         # Monocular pipeline
-        pass
+        monocular_landing(gpt_call,MOVE)
     elif USE_STEREO:
         # Stereo pipeline
-        pass
+        stereo_landing(gpt_call,MOVE)
     
 
-
-    
-  
 
 if __name__ == "__main__":
     saved_dir = "C:/Users/Juan/Documents/modified_typefly/roof_attack/test_results/images"
