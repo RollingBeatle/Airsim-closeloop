@@ -1,0 +1,4 @@
+{   
+    "basic_prompt":"You have a photo of a drone camera view, and you need to assist a drone perform an emergency landing. Answer the following questions:\nQuestion 1: Describe each image\nQuestion 2: Determine which surface is more suitable to land.\nQuestion 3: Decide which surface to land on without hitting people or obstacles. Rank the index of the best suitable option as the first one and so on.\nReturn an answer for each question.",
+    "grid_prompt": "You have a photo of a drone camera view, and you need to assist a drone perform an emergency landing. Answer the following questions:\nQuestion 1: Describe the image\nQuestion 2: Determine and describe which surface is more suitable to land in the grid.\nQuestion 3: Decide which surface to land on without hitting people or obstacles. Rank the possible landing zones giving the label of the best suitable option as the first one and so on.\nReturn an answer for each question and a list of the labels"  
+}
