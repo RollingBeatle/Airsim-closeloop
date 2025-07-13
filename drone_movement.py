@@ -12,6 +12,7 @@ import time
 import math
 import torch
 from PIL import Image
+from transformers import pipeline
 
 # -------------------- CONFIG --------------------
 IMAGE_WIDTH   = 960
@@ -59,6 +60,8 @@ def label_to_pixel(label):
     px = col*CELL_W + CELL_W//2
     py = row*CELL_H + CELL_H//2
     return px, py
+
+# -------------------- DEPTH ESTIMATION -------------------
 def midas_depth_estimate(image_path, px_c, py_c, cur_z):
 
     """Estimate depth using MiDaS model."""
@@ -106,6 +109,19 @@ def midas_depth_estimate(image_path, px_c, py_c, cur_z):
     print(f"→ Descending to estimated ground Z = {landing_z:.2f}")
     return landing_z
 
+# using Depth Anything V2
+def depth_analysis_depth_anything(image:Image):
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # load pipeline
+    print("Running pipeline....")
+    pipe = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device=device)
+    # inference
+    depth_image = pipe(image)["depth"]
+    return depth_image
+
+    
+
 # -------------------- MONOCULAR PIPELINE --------------------
 def monocular_landing(llm_call, position):
 
@@ -115,6 +131,8 @@ def monocular_landing(llm_call, position):
     # 1) capture and overlay
     resp = client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
     img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
+    pillow_img = Image.fromarray(img)
+    img = np.array(depth_analysis_depth_anything(pillow_img))
     grid = overlay_grid(img)
     cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
 
@@ -177,13 +195,13 @@ def stereo_landing(llm_call, position):
     client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
     # client.landAsync().join(); client.armDisarm(False)
 
-
+# -------------------- MOVEMENT ---------------------------
 def position_drone(client:airsim.MultirotorClient):
     # Position the drone randomly in demo
     client.confirmConnection()
     client.enableApiControl(True); client.armDisarm(True)
     client.takeoffAsync().join(); time.sleep(1)
-    z0 = -np.random.uniform(15, 25)
+    z0 = -np.random.uniform(40, 50)
     client.moveToZAsync(z0,2).join(); time.sleep(1)
 
 def land_drone(client:airsim.MultirotorClient, x, y ,z): 

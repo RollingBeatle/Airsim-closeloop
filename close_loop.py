@@ -20,10 +20,11 @@ from Get_data import get_image_lidar
 from LLM_subimages import find_roofs
 from drone_movement import monocular_landing, stereo_landing
 
+
 # CONFIGURATION VARIABLES
 
-USE_MONOCULAR = False
-USE_STEREO = True
+USE_MONOCULAR = True
+USE_STEREO = False
 LIDAR = False
 MOVE = True
 PROMPTS_FILE = 'prompts.json'
