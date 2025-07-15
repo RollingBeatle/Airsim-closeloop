@@ -42,21 +42,18 @@ def gpt_call(image):
 # """
     # Get GPT Client
     clientGPT = get_gpt_client()
-
-    if LIDAR:
-        with open(PROMPTS_FILE, 'r') as f:
+    with open(PROMPTS_FILE, 'r') as f:
             # Parsing the JSON file into a Python dictionary
             prompts = json.load(f)
-            prompt = prompts["basic_prompt"]
+
+    if LIDAR:
+        prompt = prompts["basic_prompt"]
         landing_dir = './landing_zones'
         detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
                       for f in os.listdir(landing_dir)]
     
     elif USE_MONOCULAR or USE_STEREO:
-        with open(PROMPTS_FILE, 'r') as f:
-            # Parsing the JSON file into a Python dictionary
-            prompts = json.load(f)
-            prompt = prompts["grid_prompt"]
+        prompt = prompts["grid_prompt"]
         image_ms = Image.fromarray(cv2.imread(image))
         detections = [image_ms]
     
@@ -137,9 +134,21 @@ def get_gpt_client():
     clientGPT = OpenAI(api_key=api_key)
     return clientGPT
 
-def main():
+def create_subdirs():
+    # add more dirs if needed
+    curr_dir = os.getcwd()
+    dirs = ["images", "landing_zones","point_cloud_data"]
     
+    # create the dirs if not created yet
+    for dir in dirs:
+        new_dir = curr_dir+f'/{dir}'
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+            print(f"Created {dir} folder")
+    
+def main():
     # get data
+    create_subdirs()
     if LIDAR:
         # LiDAR pipeline
         pc_name, img_name = "point_cloud_1", "img_1"
@@ -158,7 +167,6 @@ def main():
         # Stereo pipeline
         stereo_landing(gpt_call,MOVE)
     
-
 
 if __name__ == "__main__":
     saved_dir = "C:/Users/Juan/Documents/modified_typefly/roof_attack/test_results/images"
