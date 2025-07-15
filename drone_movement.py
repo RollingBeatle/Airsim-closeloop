@@ -13,7 +13,7 @@ import math
 import torch
 from PIL import Image
 from transformers import pipeline
-
+from skimage import measure
 # -------------------- CONFIG --------------------
 IMAGE_WIDTH   = 960
 IMAGE_HEIGHT  = 540
@@ -24,11 +24,13 @@ CELL_W        = IMAGE_WIDTH  // GRID_COLS
 CELL_H        = IMAGE_HEIGHT // GRID_ROWS
 CAM_NAME      = "frontcamera"
 BASELINE      = 2.0            # stereo baseline in meters
+EXAMPLE_POS   = (0,-35,-100)
+FIXED        = True        
 
 
 # -------------------- HELPERS --------------------
 
-def overlay_grid(img, highlight=None):
+def overlay_grid(img, area, highlight=None):
     """Draws a GRID_ROWS×GRID_COLS grid on img; highlight is (row,col) to box."""
     out = img.copy()
     for i in range(1, GRID_ROWS):
@@ -45,13 +47,14 @@ def overlay_grid(img, highlight=None):
         x1,y1 = c*CELL_W, r*CELL_H
         x2,y2 = x1+CELL_W, y1+CELL_H
         cv2.rectangle(out,(x1,y1),(x2,y2),(0,0,255),3)
+    i = 0   
+    # Crops landing areas after the grid is overlay, this might be an approach for now
+    for a in area:
+        crop = out[a[0]:a[2], a[1]:a[3]]
+        fname = f'landing_zones/landing_zone{i}.jpg'
+        cv2.imwrite(fname, crop)
+        i+=1
     return out
-
-def ask_llm_for_cell(image_path):
-    """TODO: integrate with your LLM (e.g., GPT-4V). Return label like 'C5'."""
-    # TODO: Read image, send to LLM with prompt "Which grid cell A1–G7?"
-    #       Parse and return the label string.
-    raise NotImplementedError
 
 def label_to_pixel(label):
     """Converts 'C5' → (row=2,col=4) → (px,py)."""
@@ -118,10 +121,40 @@ def depth_analysis_depth_anything(image:Image):
     pipe = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device=device)
     # inference
     depth_image = pipe(image)["depth"]
+    depth_image.save("depth_image.jpg")
     return depth_image
 
+def segment_surfaces(img, original):
     
+    depth = cv2.GaussianBlur(img, (5, 5), 0)
 
+    # Compute gradient magnitude
+    grad_x = cv2.Sobel(depth, cv2.CV_32F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(depth, cv2.CV_32F, 0, 1, ksize=3)
+    grad_mag = np.sqrt(grad_x**2 + grad_y**2)
+
+    # Threshold to get flat regions
+    flat_mask = (grad_mag < 10).astype(np.uint8)
+    flat_mask = cv2.morphologyEx(flat_mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
+
+    # Label regions
+    labeled = measure.label(flat_mask, connectivity=2)
+    props = measure.regionprops(labeled)
+
+    # Load original image for annotation
+    annotated = original.copy()
+    areas = []
+    # segment flat surfaces
+    for p in props:
+        if p.area > 700:  # filter out small noise
+            minr, minc, maxr, maxc = p.bbox
+            cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
+            areas.append((minr, minc, maxr, maxc))
+
+    # Save annotated image
+    cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
+    return areas
+    
 # -------------------- MONOCULAR PIPELINE --------------------
 def monocular_landing(llm_call, position):
 
@@ -132,8 +165,10 @@ def monocular_landing(llm_call, position):
     resp = client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
     img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
     pillow_img = Image.fromarray(img)
-    img = np.array(depth_analysis_depth_anything(pillow_img))
-    grid = overlay_grid(img)
+    # depth map image and segmentation
+    img2 = np.array(depth_analysis_depth_anything(pillow_img))
+    areas = segment_surfaces(img2, np.array(pillow_img))
+    grid = overlay_grid(img, areas)
     cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
 
     # 2) ask LLM for grid cell
@@ -154,7 +189,7 @@ def monocular_landing(llm_call, position):
     client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
 
     # 4) (Optional) MiDaS descent, omitted here
-    # TODO: integrate MiDaS depth-estimate for accurate Z
+    # TODO: DO integrate MiDaS depth-estimate for accurate Z
 
 # -------------------- STEREO PIPELINE --------------------
 def stereo_landing(llm_call, position):
@@ -201,9 +236,13 @@ def position_drone(client:airsim.MultirotorClient):
     client.confirmConnection()
     client.enableApiControl(True); client.armDisarm(True)
     client.takeoffAsync().join(); time.sleep(1)
-    z0 = -np.random.uniform(40, 50)
-    client.moveToZAsync(z0,2).join(); time.sleep(1)
-
+    if FIXED:
+        x,y,z = EXAMPLE_POS
+        client.moveToPositionAsync(x,y,z,3).join(); time.sleep(1)
+    else:
+        z0 = -np.random.uniform(40, 50)
+        client.moveToZAsync(z0,2).join(); time.sleep(1)
+    
 def land_drone(client:airsim.MultirotorClient, x, y ,z): 
 
     client.moveToPositionAsync(x,y,z,3).join(); time.sleep(1)
