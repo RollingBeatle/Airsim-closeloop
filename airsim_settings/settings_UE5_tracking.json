@@ -26,7 +26,16 @@
       "VehicleType": "SimpleFlight",
       "DefaultVehicleState": "Armed",
       "AutoCreate": true,
-      "AllowAPIAlways": true
+      "AllowAPIAlways": true,
+      "Sensors": {
+          "Distance": {
+              "SensorType": 5,
+              "Enabled" : true,
+              "Yaw": 0, "Pitch": -90, "Roll": 0,
+              "MaxDistance": 200,
+              "Z": -0.2
+          }
+      }
     }
   }
 }
