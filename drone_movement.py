@@ -30,7 +30,7 @@ FIXED        = True
 
 # -------------------- HELPERS --------------------
 
-def overlay_grid(img, area, highlight=None):
+def overlay_grid(img, highlight=None):
     """Draws a GRID_ROWS×GRID_COLS grid on img; highlight is (row,col) to box."""
     out = img.copy()
     for i in range(1, GRID_ROWS):
@@ -46,14 +46,9 @@ def overlay_grid(img, area, highlight=None):
         r,c = highlight
         x1,y1 = c*CELL_W, r*CELL_H
         x2,y2 = x1+CELL_W, y1+CELL_H
-        cv2.rectangle(out,(x1,y1),(x2,y2),(0,0,255),3)
-    i = 0   
-    # Crops landing areas after the grid is overlay, this might be an approach for now
-    for a in area:
-        crop = out[a[0]:a[2], a[1]:a[3]]
-        fname = f'landing_zones/landing_zone{i}.jpg'
-        cv2.imwrite(fname, crop)
-        i+=1
+        cv2.rectangle(out,(x1,y1),(x2,y2),(0,0,255),3) 
+    
+    
     return out
 
 def label_to_pixel(label):
@@ -63,6 +58,15 @@ def label_to_pixel(label):
     px = col*CELL_W + CELL_W//2
     py = row*CELL_H + CELL_H//2
     return px, py
+
+def crop_surfaces(area, img):
+    out = img.copy()
+    i = 0
+    for a in area:
+        crop = out[a[0]:a[2], a[1]:a[3]]
+        fname = f'landing_zones/landing_zone{i}.jpg'
+        cv2.imwrite(fname, crop)
+        i+=1
 
 # -------------------- DEPTH ESTIMATION -------------------
 def midas_depth_estimate(image_path, px_c, py_c, cur_z):
@@ -112,7 +116,7 @@ def midas_depth_estimate(image_path, px_c, py_c, cur_z):
     print(f"→ Descending to estimated ground Z = {landing_z:.2f}")
     return landing_z
 
-# using Depth Anything V2
+# Depth Anything V2
 def depth_analysis_depth_anything(image:Image):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -124,6 +128,7 @@ def depth_analysis_depth_anything(image:Image):
     depth_image.save("depth_image.jpg")
     return depth_image
 
+# segment images based on depth map
 def segment_surfaces(img, original):
     
     depth = cv2.GaussianBlur(img, (5, 5), 0)
@@ -144,16 +149,75 @@ def segment_surfaces(img, original):
     # Load original image for annotation
     annotated = original.copy()
     areas = []
+    width_src, height_src= img.shape
+    size = width_src*height_src
     # segment flat surfaces
     for p in props:
         if p.area > 700:  # filter out small noise
             minr, minc, maxr, maxc = p.bbox
             cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
-            areas.append((minr, minc, maxr, maxc))
-
+            if not size == maxc*maxr:
+                areas.append((minr, minc, maxr, maxc))       
     # Save annotated image
     cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
     return areas
+
+def get_z_value(client:airsim.MultirotorClient, depth_map, area):
+    # get the current altitude of the drone
+    altitude = -client.getMultirotorState().kinematics_estimated.position.z_val
+    #.gps_location.altitude
+    depth_img = np.array(depth_map)
+    
+    depth_inverted = 255.0 - depth_img
+ 
+    x, y = get_farthest_point(depth_inverted)
+    value_far = depth_img[y,x]
+    # TODO: this should be a more specific way of getting the exact landing zone
+    # img = cv2.imread(f"landing_zones/"+selected_surface)
+    # a,b = img.shape[:2]
+    # x_surface, y_surface = a//2, b//2
+    # find the center of the bounding box
+    sample = area[0]
+    y_center, x_center  = sample[2]//2, sample[3]//2
+   
+    scaling_factor = altitude/value_far
+    converted_map = depth_inverted*scaling_factor
+    value_area = converted_map[y_center,x_center]
+    print("Min depth:", depth_inverted.min())
+    print("Max depth:", depth_inverted.max())
+    print("Depth at farthest point:", value_far)
+    print(f"real distance is about {value_area} meters")
+    # This is a rough fix
+    return -(altitude - (value_area*2)) 
+
+
+
+def get_farthest_point(depth_img):
+    
+    # This is a big assumption and needs further discussion but we are
+    # assuming the furthest point in the depth map is the ground
+    # depth_img = np.array(depth_img) 
+    # the size of the patch we are looking for
+    floor_patch = 500
+    # go through the numpy array from the min value until pitch black
+    for i in range(int(depth_img.min()), 255):
+        # find the darkest path of size 500
+        if np.count_nonzero(depth_img==i) >= floor_patch:
+            b = np.where(depth_img==i, 1, 0).astype(np.uint8)
+            break
+
+    # separate the section
+    contours,_ = cv2.findContours(b, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    max_contour = max(contours, key=cv2.contourArea)
+    m = cv2.moments(max_contour)
+
+    # Get bounding box
+    x_, y_, w, h = cv2.boundingRect(max_contour) 
+    center_x = int(m["m10"] / m["m00"])
+    center_y = int(m["m01"] / m["m00"])
+
+    return center_x, center_y
+    
     
 # -------------------- MONOCULAR PIPELINE --------------------
 def monocular_landing(llm_call, position):
@@ -166,11 +230,20 @@ def monocular_landing(llm_call, position):
     img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
     pillow_img = Image.fromarray(img)
     # depth map image and segmentation
-    img2 = np.array(depth_analysis_depth_anything(pillow_img))
+    depth_map = depth_analysis_depth_anything(pillow_img)
+    img2 = np.array(depth_map)
+    # get boxes of surfaces
     areas = segment_surfaces(img2, np.array(pillow_img))
-    grid = overlay_grid(img, areas)
+    # crop
+    crop_surfaces(areas, img)
+    # get Z distance and move, this is temp
+    # TODO: move this to after we get the desired square
+    z_distance = int(get_z_value(client,depth_map, areas))
+    client.moveToZAsync(z_distance,3).join()
+    
+    grid = overlay_grid(img)
     cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
-
+    
     # 2) ask LLM for grid cell
     label = llm_call("images/mono_grid.jpg")
     px, py = label_to_pixel(label)
