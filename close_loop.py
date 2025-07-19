@@ -16,8 +16,8 @@ import json
 import rich
 import pandas as pd
 
-from Get_data import get_image_lidar
-from LLM_subimages import find_roofs
+from LiDAR.Get_data import get_image_lidar
+from LiDAR.LLM_subimages import find_roofs
 from drone_movement import monocular_landing, stereo_landing
 
 
