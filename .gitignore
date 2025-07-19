@@ -2,3 +2,7 @@
 my-k-api.txt
 __pycache__
 settings_versions
+images
+pcd_images
+point_cloud_data
+landing_zones

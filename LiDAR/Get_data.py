@@ -13,7 +13,7 @@ def get_image_lidar(pc_name, img_name):
     client.confirmConnection()
 
     # Get Lidar data
-    lidar_data = client.getLidarData('GPULidar1', 'Drone1')
+    lidar_data = client.getLidarData('Lidar1', 'Copter')
     print(lidar_data)
 
     # Your flat array (replace with your data)
