@@ -37,7 +37,7 @@ def get_current_image(client):
     image_array_normalized = image_array / 255.0
 
     # Gamma correction (exposure reduction)
-    exposure_reduction_factor = 4  # >1 darkens the image; increase for more reduction
+    exposure_reduction_factor = 1  # >1 darkens the image; increase for more reduction
     image_gamma_corrected = np.power(image_array_normalized, exposure_reduction_factor)
 
     # Scale back to [0, 255]
@@ -79,6 +79,8 @@ def track_template(landing_zone, current_image, landing_center=None, search_radi
 
 def move_in_direction(client, dx_pixels, dy_pixels, step_distance_meters=1):
     # Calculate direction vector from dx, dy
+    if dx_pixels > 30 or dy_pixels > 30:
+        step_distance_meters = 2
     vec = np.array([dx_pixels, dy_pixels])
 
     norm = np.linalg.norm(vec)
@@ -107,8 +109,12 @@ def move_in_direction(client, dx_pixels, dy_pixels, step_distance_meters=1):
 def land(client):
     distance_sensor_data = client.getDistanceSensorData("Distance", "Drone1")
     distance = distance_sensor_data.distance
-    print(f"Distance to ground: {distance:.2f}")
-    target_z = distance
+    state = client.getMultirotorState()
+    pos = state.kinematics_estimated.position
+    target_z = pos.z_val + distance - 1 # -1 so that it doesn't go so fast into the ground and stops a bit before it
+
+    print(f"Distance to ground: {distance}, Moving to z: {target_z}") 
+
     client.moveToZAsync(target_z, 2).join() 
     client.landAsync().join()
 
@@ -126,7 +132,7 @@ def main_loop():
     h_img, w_img = image.shape[:2]
 
     # This will change to be our actual landing zone for now im just setting it to some spot in the upper left hand area
-    landing_center = (int(w_img * 0.40), int(h_img * 0.40))
+    landing_center = (int(w_img * 0.45), int(h_img * 0.45))
     print(f"Initial landing zone center: {landing_center}")
 
     patch = extract_patch(image, landing_center, size=100)
