@@ -31,7 +31,6 @@ def get_current_image(client):
     # Convert image to numpy array (PIL gives RGB)
     image_array = np.array(image)
 
-    # Optional: Convert RGB to BGR if you will use OpenCV functions later
     image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
 
     # Normalize pixel values to [0, 1] for gamma correction
@@ -105,8 +104,13 @@ def move_in_direction(client, dx_pixels, dy_pixels, step_distance_meters=1):
     client.moveToPositionAsync(target_x, target_y, target_z, velocity=1.0).join()
     print("FinishedMovement")
 
-
-
+def land(client):
+    distance_sensor_data = client.getDistanceSensorData("Distance", "Drone1")
+    distance = distance_sensor_data.distance
+    print(f"Distance to ground: {distance:.2f}")
+    target_z = distance
+    client.moveToZAsync(target_z, 2).join() 
+    client.landAsync().join()
 
 def main_loop():
     client = airsim.MultirotorClient()
@@ -122,7 +126,7 @@ def main_loop():
     h_img, w_img = image.shape[:2]
 
     # This will change to be our actual landing zone for now im just setting it to some spot in the upper left hand area
-    landing_center = (int(w_img * 0.45), int(h_img * 0.45))
+    landing_center = (int(w_img * 0.40), int(h_img * 0.40))
     print(f"Initial landing zone center: {landing_center}")
 
     patch = extract_patch(image, landing_center, size=100)
@@ -155,7 +159,8 @@ def main_loop():
         landing_center = predicted_center
         patch = extract_patch(current_image, landing_center, size=100)
 
-    client.landAsync().join()
+    land(client)
+
     client.armDisarm(False)
     client.enableApiControl(False)
 
