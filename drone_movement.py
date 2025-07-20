@@ -14,6 +14,7 @@ import torch
 from PIL import Image
 from transformers import pipeline
 from skimage import measure
+import os
 # -------------------- CONFIG --------------------
 IMAGE_WIDTH   = 960
 IMAGE_HEIGHT  = 540
@@ -34,14 +35,14 @@ def overlay_grid(img, highlight=None):
     """Draws a GRID_ROWS×GRID_COLS grid on img; highlight is (row,col) to box."""
     out = img.copy()
     for i in range(1, GRID_ROWS):
-        cv2.line(out, (0, i*CELL_H), (IMAGE_WIDTH, i*CELL_H), (0,255,0), 2)
+        cv2.line(out, (0, i*CELL_H), (IMAGE_WIDTH, i*CELL_H), (0,255,0), 1)
     for j in range(1, GRID_COLS):
-        cv2.line(out, (j*CELL_W, 0), (j*CELL_W, IMAGE_HEIGHT), (0,255,0), 2)
+        cv2.line(out, (j*CELL_W, 0), (j*CELL_W, IMAGE_HEIGHT), (0,255,0),1)
     for r in range(GRID_ROWS):
         for c in range(GRID_COLS):
             label = f"{chr(ord('A')+r)}{c+1}"
             cx, cy = c*CELL_W+CELL_W//2, r*CELL_H+CELL_H//2
-            cv2.putText(out, label, (cx-20, cy+10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+            cv2.putText(out, label, (cx-20, cy+10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 1)
     if highlight:
         r,c = highlight
         x1,y1 = c*CELL_W, r*CELL_H
@@ -125,7 +126,7 @@ def depth_analysis_depth_anything(image:Image):
     pipe = pipeline(task="depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf", device=device)
     # inference
     depth_image = pipe(image)["depth"]
-    depth_image.save("depth_image.jpg")
+    depth_image.save("images/depth_image.jpg")
     return depth_image
 
 # segment images based on depth map
@@ -164,7 +165,7 @@ def segment_surfaces(img, original):
 
 def get_z_value(client:airsim.MultirotorClient, depth_map, area):
     # get the current altitude of the drone
-    altitude = -client.getMultirotorState().kinematics_estimated.position.z_val
+    altitude = abs(client.getMultirotorState().kinematics_estimated.position.z_val)
     #.gps_location.altitude
     depth_img = np.array(depth_map)
     
@@ -177,8 +178,7 @@ def get_z_value(client:airsim.MultirotorClient, depth_map, area):
     # a,b = img.shape[:2]
     # x_surface, y_surface = a//2, b//2
     # find the center of the bounding box
-    sample = area[0]
-    y_center, x_center  = sample[2]//2, sample[3]//2
+    y_center, x_center  = area[1]//2, area[0]//2
    
     scaling_factor = altitude/value_far
     converted_map = depth_inverted*scaling_factor
@@ -188,7 +188,7 @@ def get_z_value(client:airsim.MultirotorClient, depth_map, area):
     print("Depth at farthest point:", value_far)
     print(f"real distance is about {value_area} meters")
     # This is a rough fix
-    return -(altitude - (value_area*2)) 
+    return (altitude - (value_area*2)) 
 
 
 
@@ -234,15 +234,10 @@ def monocular_landing(llm_call, position):
     img2 = np.array(depth_map)
     # get boxes of surfaces
     areas = segment_surfaces(img2, np.array(pillow_img))
-    # crop
-    crop_surfaces(areas, img)
-    # get Z distance and move, this is temp
-    # TODO: move this to after we get the desired square
-    z_distance = int(get_z_value(client,depth_map, areas))
-    client.moveToZAsync(z_distance,3).join()
-    
-    grid = overlay_grid(img)
+    grid = overlay_grid(np.array(pillow_img))
     cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
+    # crop
+    crop_surfaces(areas, grid)
     
     # 2) ask LLM for grid cell
     label = llm_call("images/mono_grid.jpg")
@@ -258,6 +253,11 @@ def monocular_landing(llm_call, position):
     dx = px - IMAGE_WIDTH/2; dy = py - IMAGE_HEIGHT/2
     north = -dy*mpp_y; east = dx*mpp_x
     tx = pose.x_val + north; ty = pose.y_val + east; tz = pose.z_val
+
+    # get Z distance and move, this is temp
+    # TODO: move this to after we get the desired square
+    tz = -int(get_z_value(client,depth_map, (px,py)))
+    # client.moveToZAsync(z_distance,3).join()
 
     client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
 

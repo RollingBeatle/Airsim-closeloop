@@ -15,6 +15,7 @@ import base64
 import json
 import rich
 import pandas as pd
+import shutil
 
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
@@ -28,6 +29,8 @@ USE_STEREO = False
 LIDAR = False
 MOVE = True
 PROMPTS_FILE = 'prompts.json'
+DELETE_LZ = True
+DIRS = ["images", "landing_zones","point_cloud_data"]
 
 def gpt_call(image):
 
@@ -48,14 +51,15 @@ def gpt_call(image):
 
     if LIDAR:
         prompt = prompts["basic_prompt"]
-        landing_dir = './landing_zones'
-        detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
-                      for f in os.listdir(landing_dir)]
     
     elif USE_MONOCULAR or USE_STEREO:
         prompt = prompts["grid_prompt"]
-        image_ms = Image.fromarray(cv2.imread(image))
-        detections = [image_ms]
+        # In case we want to use the original image, otherwise this should be deleted
+        detections = [Image.fromarray(cv2.imread(image))]
+
+    landing_dir = './landing_zones'
+    detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
+                      for f in os.listdir(landing_dir)]
     
     print(detections)
     resp = completion_retry(
@@ -69,7 +73,7 @@ def gpt_call(image):
 
     result = json.loads(resp.choices[0].message.content)
     rich.print(result)  
-    return result['Labels'][0]
+    return result['Coordinates'][0]
         
 def log_when_fail(retry_state):
     print(
@@ -121,7 +125,7 @@ def encode_image(pil_image):
 # Specify the response format for GPT to make sure its output is structured as follows
 class ResponseFormat(BaseModel):
     Answers: List[str]
-    Labels: List[str]
+    Coordinates: List[str]
 class ResponseFormatBasic(BaseModel):
     Answer: List[str]
     # Reason: str
@@ -137,17 +141,24 @@ def get_gpt_client():
 def create_subdirs():
     # add more dirs if needed
     curr_dir = os.getcwd()
-    dirs = ["images", "landing_zones","point_cloud_data"]
-    
     # create the dirs if not created yet
-    for dir in dirs:
+    for dir in DIRS:
         new_dir = curr_dir+f'/{dir}'
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
             print(f"Created {dir} folder")
+
+def clear_dirs():
+    """Clear existing data"""
+    curr_dir = os.getcwd()
+    for dir in DIRS:
+        del_dir = curr_dir+f'/{dir}'
+        shutil.rmtree(del_dir)
+
     
 def main():
     # get data
+    if DELETE_LZ: clear_dirs()
     create_subdirs()
     if LIDAR:
         # LiDAR pipeline
@@ -169,5 +180,5 @@ def main():
     
 
 if __name__ == "__main__":
-    saved_dir = "C:/Users/Juan/Documents/modified_typefly/roof_attack/test_results/images"
+    
     main()
