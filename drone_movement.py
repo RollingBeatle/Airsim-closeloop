@@ -190,7 +190,11 @@ def get_z_value(client:airsim.MultirotorClient, depth_map, area):
     # This is a rough fix
     return (altitude - (value_area*2)) 
 
-
+def get_rangefinder(client:airsim.MultirotorClient):
+    distance_sensor_data = client.getDistanceSensorData("Distance","airsimvehicle")
+    distance = distance_sensor_data.distance
+    print(f"Distance to ground: {distance:.2f}")
+    return distance
 
 def get_farthest_point(depth_img):
     
@@ -244,6 +248,7 @@ def monocular_landing(llm_call, position):
     px, py = label_to_pixel(label)
 
     # 3) pixel→world XY via IPM
+    
     pose = client.getMultirotorState().kinematics_estimated.position
     A = abs(pose.z_val)
     hFOV = math.radians(FOV_DEGREES)
@@ -256,11 +261,16 @@ def monocular_landing(llm_call, position):
 
     # get Z distance and move, this is temp
     # TODO: move this to after we get the desired square
-    tz = -int(get_z_value(client,depth_map, (px,py)))
+    # tz = -int(get_z_value(client,depth_map, (px,py)))
     # client.moveToZAsync(z_distance,3).join()
-
+    
     client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
-
+    
+    new_z = tz+get_rangefinder(client)-3
+    print("target height", new_z)
+    client.moveToZAsync(new_z,3).join()
+    client.landAsync().join()
+    
     # 4) (Optional) MiDaS descent, omitted here
     # TODO: DO integrate MiDaS depth-estimate for accurate Z
 

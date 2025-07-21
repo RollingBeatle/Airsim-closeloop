@@ -322,34 +322,29 @@
                     "Enabled": false,
                     "SensorType": 4
                 },
-                "distance": {
-                    "Enabled": false,
-                    "SensorType": 5
+                "Distance": {
+                    "SensorType": 5,
+                    "Enabled" : true,
+                    "DrawDebugPoints": true,
+                    "Yaw": 0, "Pitch": -90, "Roll": 0,
+                    "MaxDistance": 200,
+                    "Z": 1
                 },
-                
-                "lidar": {
+                "LidarSensor1": {
                     "SensorType": 6,
                     "Enabled": true,
-                    "External": false,
-                    "ExternalLocal": true,
-                    "NumberOfChannels": 32,
-                    "Range": 120,
+                    "NumberOfChannels": 1,
                     "RotationsPerSecond": 10,
-                    "MeasurementsPerCycle": 1024,
-                    "X": 0,
-                    "Y": 0,
-                    "Z": -0.55,
-                    "Roll": 0,
-                    "Pitch": 0,
-                    "Yaw": 0,
-                    "VerticalFOVUpper": 26.8,
-                    "VerticalFOVLower": -24.8,
                     "HorizontalFOVStart": 0,
-                    "HorizontalFOVEnd": 360,
-                    "DrawDebugPoints": false,
-                    "IgnoreMarked": true,
-                    "GenerateNoise": true,
-                    "DrawSensor": false
+                    "HorizontalFOVEnd": 0.01,
+                    "VerticalFOVUpper": 0,
+                    "VerticalFOVLower": 0,
+                    "PointsPerSecond": 1000,
+                    "X": 0, "Y": 0, "Z": -0.2,
+                    "Roll": 0, "Pitch": -90, "Yaw": 0,
+                    "Range": 50,
+                    "DataFrame": "Vehicle",
+                    "DrawDebugPoints": false
                 },
                 "echo": {
                     "SensorType": 7,
