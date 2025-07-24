@@ -15,6 +15,7 @@ from PIL import Image
 from transformers import pipeline
 from skimage import measure
 import os
+import shutil
 # -------------------- CONFIG --------------------
 IMAGE_WIDTH   = 960
 IMAGE_HEIGHT  = 540
@@ -27,7 +28,7 @@ CAM_NAME      = "frontcamera"
 BASELINE      = 2.0            # stereo baseline in meters
 EXAMPLE_POS   = (0,-35,-100)
 FIXED        = True        
-
+DIRS = ["images", "landing_zones","point_cloud_data"]
 
 # -------------------- HELPERS --------------------
 
@@ -68,6 +69,23 @@ def crop_surfaces(area, img):
         fname = f'landing_zones/landing_zone{i}.jpg'
         cv2.imwrite(fname, crop)
         i+=1
+
+def create_subdirs():
+    # add more dirs if needed
+    curr_dir = os.getcwd()
+    # create the dirs if not created yet
+    for dir in DIRS:
+        new_dir = curr_dir+f'/{dir}'
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+            print(f"Created {dir} folder")
+
+def clear_dirs():
+    """Clear existing data"""
+    curr_dir = os.getcwd()
+    for dir in DIRS:
+        del_dir = curr_dir+f'/{dir}'
+        shutil.rmtree(del_dir)
 
 # -------------------- DEPTH ESTIMATION -------------------
 def midas_depth_estimate(image_path, px_c, py_c, cur_z):
@@ -229,50 +247,63 @@ def monocular_landing(llm_call, position):
     client = airsim.MultirotorClient()
     if position:
         position_drone(client)
-    # 1) capture and overlay
-    resp = client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
-    img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
-    pillow_img = Image.fromarray(img)
-    # depth map image and segmentation
-    depth_map = depth_analysis_depth_anything(pillow_img)
-    img2 = np.array(depth_map)
-    # get boxes of surfaces
-    areas = segment_surfaces(img2, np.array(pillow_img))
-    grid = overlay_grid(np.array(pillow_img))
-    cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
-    # crop
-    crop_surfaces(areas, grid)
+    """ 
+    We want to find a way to do ask the LLM x number of times before landing
+    Rigth now we are proposing a z distance threshold to land:
+    if surface ^ dist_z =< 10 => land()
+    """
+    # drone air-space limit
+    distz = 155
+    while abs(distz) > 10:
+        
+        # 1) capture and overlay
+        resp = client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+        img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
+        pillow_img = Image.fromarray(img)
+        # depth map image and segmentation
+        depth_map = depth_analysis_depth_anything(pillow_img)
+        img2 = np.array(depth_map)
+        # get boxes of surfaces
+        np_arr = np.array(pillow_img)
+        areas = segment_surfaces(img2, np_arr)
+        # save image
+        cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+        # removing grid
+        # grid = overlay_grid(np.array(pillow_img))
+        # cv2.imwrite("images/mono_grid.jpg", cv2.cvtColor(grid,cv2.COLOR_RGB2BGR))
+        # crop
+        img_copy = np_arr.copy()
+        crop_surfaces(areas, img_copy)
     
-    # 2) ask LLM for grid cell
-    label = llm_call("images/mono_grid.jpg")
-    px, py = label_to_pixel(label)
+        # 2) ask LLM for surface
+        select_pil_image = llm_call("images/mono.jpg")
+        
+        px, py = select_pil_image.size[0]/2, select_pil_image.size[1]/2
+        # px, py = label_to_pixel(label)
 
-    # 3) pixel→world XY via IPM
-    
-    pose = client.getMultirotorState().kinematics_estimated.position
-    A = abs(pose.z_val)
-    hFOV = math.radians(FOV_DEGREES)
-    vFOV = 2*math.atan(math.tan(hFOV/2)*(IMAGE_HEIGHT/IMAGE_WIDTH))
-    world_w = 2*A*math.tan(hFOV/2); world_h = 2*A*math.tan(vFOV/2)
-    mpp_x = world_w/IMAGE_WIDTH; mpp_y = world_h/IMAGE_HEIGHT
-    dx = px - IMAGE_WIDTH/2; dy = py - IMAGE_HEIGHT/2
-    north = -dy*mpp_y; east = dx*mpp_x
-    tx = pose.x_val + north; ty = pose.y_val + east; tz = pose.z_val
+        # 3) pixel→world XY via IPM
+        pose = client.getMultirotorState().kinematics_estimated.position
+        A = abs(pose.z_val)
+        hFOV = math.radians(FOV_DEGREES)
+        vFOV = 2*math.atan(math.tan(hFOV/2)*(IMAGE_HEIGHT/IMAGE_WIDTH))
+        world_w = 2*A*math.tan(hFOV/2); world_h = 2*A*math.tan(vFOV/2)
+        mpp_x = world_w/IMAGE_WIDTH; mpp_y = world_h/IMAGE_HEIGHT
+        dx = px - IMAGE_WIDTH/2; dy = py - IMAGE_HEIGHT/2
+        north = -dy*mpp_y; east = dx*mpp_x
+        tx = pose.x_val + north; ty = pose.y_val + east; tz = pose.z_val
 
-    # get Z distance and move, this is temp
-    # TODO: move this to after we get the desired square
-    # tz = -int(get_z_value(client,depth_map, (px,py)))
-    # client.moveToZAsync(z_distance,3).join()
-    
-    client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
-    
-    new_z = tz+get_rangefinder(client)-3
-    print("target height", new_z)
-    client.moveToZAsync(new_z,3).join()
+        # 4) move to the x,y postion
+        client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(1)
+        
+        # 5) go down to a desired z
+        distz = tz + (get_rangefinder(client)*0.7) 
+        print("target height", distz)
+        client.moveToZAsync(distz,3).join()
+        clear_dirs()
+        create_subdirs()
+    # client.moveToZAsync(distz,3).join()
     client.landAsync().join()
     
-    # 4) (Optional) MiDaS descent, omitted here
-    # TODO: DO integrate MiDaS depth-estimate for accurate Z
 
 # -------------------- STEREO PIPELINE --------------------
 def stereo_landing(llm_call, position):
@@ -321,7 +352,7 @@ def position_drone(client:airsim.MultirotorClient):
     client.takeoffAsync().join(); time.sleep(1)
     if FIXED:
         x,y,z = EXAMPLE_POS
-        client.moveToPositionAsync(x,y,z,3).join(); time.sleep(1)
+        client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
     else:
         z0 = -np.random.uniform(40, 50)
         client.moveToZAsync(z0,2).join(); time.sleep(1)

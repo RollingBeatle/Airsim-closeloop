@@ -32,7 +32,7 @@ PROMPTS_FILE = 'prompts.json'
 DELETE_LZ = True
 DIRS = ["images", "landing_zones","point_cloud_data"]
 
-def gpt_call(image):
+def gpt_call(image) -> Image:
 
 #     prompt = """A quadcopter is flying over a city and needs to perform an emergency landing on a rooftop.
 # Given photos of several rooftops taken by this quadcopter, you are required to select the optimal rooftop as the emergency landing zone.
@@ -50,30 +50,52 @@ def gpt_call(image):
             prompts = json.load(f)
 
     if LIDAR:
-        prompt = prompts["basic_prompt"]
+        prompt = prompts["grid_prompt"]
     
     elif USE_MONOCULAR or USE_STEREO:
-        prompt = prompts["grid_prompt"]
-        # In case we want to use the original image, otherwise this should be deleted
-        detections = [Image.fromarray(cv2.imread(image))]
-
+        prompt = prompts["basic_prompt"]
+        
     landing_dir = './landing_zones'
-    detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
+    try:
+        detections = [Image.fromarray(cv2.imread(os.path.join(landing_dir, f)))
                       for f in os.listdir(landing_dir)]
+    except:
+        # Crop the original image
+        print("there are no detections, either detector failed or the whole surface is the detection\n We assume the second one")
+        detection = Image.fromarray(cv2.imread(image))
+        w, h = detection.size
+        upper_left = detection.crop((0,0,w//2,h//2))
+        upper_right = detection.crop((w//2,0,w,h//2))
+        bottom_left = detection.crop((0,h//2,w//2,h//2))
+        bottom_right = detection.crop((w//2,h//2,w,h))
+
+        left = (w - 150) // 2
+        top = (h - 150) // 2
+        right = (w + 150) // 2
+        bottom = (h + 150) // 2
+        center = detection.crop((left,top,right,bottom))
+
+        detections = [upper_left, upper_right, bottom_left, bottom_right, center]
+    # we want to send at most 4 areas to the LLM
+    if len(detections) > 4:
+        sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height)
+        detections = sorted_images_by_area[:4]
     
-    print(detections)
+    
     resp = completion_retry(
     content=[
                 {"type": "image_url", "image_url": {"url": encode_image(det)}}
                 for det in detections  
             ] + [{"type": "text", "text": prompt}],
     model="gpt-4o-2024-11-20", clientGPT=clientGPT,
-    response_format=ResponseFormat
+    response_format=ResponseFormatBasic
     )
 
     result = json.loads(resp.choices[0].message.content)
     rich.print(result)  
-    return result['Coordinates'][0]
+    detections[int(result['Surfaces'][0])-1].show()
+    return detections[int(result['Surfaces'][0])-1]
+    # return result['Coordinates'][0]
         
 def log_when_fail(retry_state):
     print(
@@ -128,7 +150,7 @@ class ResponseFormat(BaseModel):
     Coordinates: List[str]
 class ResponseFormatBasic(BaseModel):
     Answer: List[str]
-    # Reason: str
+    Surfaces: List[str]
 
 def get_gpt_client():
     # read the API key and create the GPT client
