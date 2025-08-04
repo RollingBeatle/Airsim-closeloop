@@ -1,111 +1,72 @@
-# Lidar baseline
 import cosysairsim as airsim
 import numpy as np
 import matplotlib.pyplot as plt
 import open3d as o3d
-import os
 import io
-from PIL import Image, ImageEnhance
+from PIL import Image
 import cv2
 from collections import deque
 import math
 
-"""
-Fly drone up
-get lidar data + take photo. 
-Pick random landing spot
-Go to it
-Land
-
-"""
 def rotate_point_cloud(pcd, angle_deg=-90):
-    # Convert the angle to radians
     angle_rad = np.radians(angle_deg)
-    
-    # Create the 2D rotation matrix for a clockwise rotation around the Z-axis (counterclockwise -90 degrees)
     rotation_matrix = np.array([[np.cos(angle_rad), -np.sin(angle_rad), 0],
                                 [np.sin(angle_rad), np.cos(angle_rad), 0],
                                 [0, 0, 1]])
-
-    # Apply the rotation matrix to each point in the point cloud
     points = np.asarray(pcd.points)
-    rotated_points = np.dot(points, rotation_matrix.T)  # Dot product with the rotation matrix
-
-    # Set the new points to the point cloud
+    rotated_points = np.dot(points, rotation_matrix.T)
     pcd.points = o3d.utility.Vector3dVector(rotated_points)
-
     return pcd
 
 def get_current_image(client):
     response = client.simGetImage("bottom_center", airsim.ImageType.Scene)
     image = Image.open(io.BytesIO(response))
-
-    # Convert image to numpy array (PIL gives RGB)
     image_array = np.array(image)
-
     image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-
-    # Normalize pixel values to [0, 1] for gamma correction
-    image_array_normalized = image_array / 255.0
-
-    # Gamma correction (exposure reduction)
-    exposure_reduction_factor = 1  # >1 darkens the image; increase for more reduction
-    image_gamma_corrected = np.power(image_array_normalized, exposure_reduction_factor)
-
-    # Scale back to [0, 255]
-    image_gamma_corrected = np.clip(image_gamma_corrected * 255, 0, 255).astype(np.uint8)
-
-    return image_gamma_corrected
+    return image_array
 
 def calculate_focal_length_from_fov(image_width_px, image_height_px, fov_deg):
     fov_rad = math.radians(fov_deg)
     fx = (image_width_px / 2) / math.tan(fov_rad / 2)
-    fy = (image_height_px / 2) / math.tan(fov_rad / 2)
+    fy = fx
     return fx, fy
 
 def map_coord_to_pixel(image, points, fx, fy):
     h, w = image.shape[:2]
     cx = w / 2
     cy = h / 2
-
-    point_to_pixel_map = {}
+    pixel_to_point_map = {}
 
     for point in points:
         x, y, z = point
-
-        # Avoid division by zero (ignore points behind the camera or with z near zero)
         if z <= 0.1:
             continue
-
         u = int((x * fx) / z + cx)
         v = int((y * fy) / z + cy)
-
         if 0 <= u < w and 0 <= v < h:
-            point_to_pixel_map[(u, v)] = point
+            pixel_to_point_map[(u, v)] = point
 
-    return point_to_pixel_map
+    return pixel_to_point_map
+
 
 def find_closest_voxel_to_pixel(start_pixel, pixel_to_point_map, max_radius=50):
-    visited = set()
-    queue = deque()
-    queue.append(start_pixel)
+    sx, sy = start_pixel
+    closest_pixel = None
+    closest_point = None
+    min_dist = float('inf')
 
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4-neighborhood
+    for dx in range(-max_radius, max_radius + 1):
+        for dy in range(-max_radius, max_radius + 1):
+            u, v = sx + dx, sy + dy
+            if (u, v) in pixel_to_point_map:
+                dist = math.sqrt(dx**2 + dy**2)
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_pixel = (u, v)
+                    closest_point = pixel_to_point_map[(u, v)]
 
-    while queue:
-        u, v = queue.popleft()
-        if (u, v) in pixel_to_point_map:
-            return pixel_to_point_map[(u, v)]  # Return the 3D point
+    return closest_pixel, closest_point
 
-        visited.add((u, v))
-
-        for dx, dy in directions:
-            nu, nv = u + dx, v + dy
-            if (nu, nv) not in visited:
-                if abs(nu - start_pixel[0]) <= max_radius and abs(nv - start_pixel[1]) <= max_radius:
-                    queue.append((nu, nv))
-
-    return None
 
 def land(client):
     distance_sensor_data = client.getDistanceSensorData("Distance", "Drone1")
@@ -126,6 +87,46 @@ def get_open3d_point_cloud(lidar_points):
     pcd.points = o3d.utility.Vector3dVector(points)
     return pcd 
 
+def crop_image_around_pixel(image, center_pixel, size=100):
+    u, v = center_pixel
+    half = size // 2
+    top = max(v - half, 0)
+    bottom = min(v + half, image.shape[0])
+    left = max(u - half, 0)
+    right = min(u + half, image.shape[1])
+    crop = image[top:bottom, left:right]
+    cv2.imwrite("landing_zone_crop.png", crop)
+    return crop
+
+def colorize_point_cloud_with_image(points, image, fx, fy):
+    h, w = image.shape[:2]
+    cx = w / 2
+    cy = h / 2
+
+    colors = []
+    valid_points = []
+
+    for point in points:
+        x, y, z = point
+        if z <= 0.1:
+            continue
+
+        u = int((x * fx) / z + cx)
+        v = int((y * fy) / z + cy)
+
+        if 0 <= u < w and 0 <= v < h:
+            bgr = image[v, u]  # OpenCV uses BGR format
+            rgb = [bgr[2] / 255.0, bgr[1] / 255.0, bgr[0] / 255.0]
+            colors.append(rgb)
+            valid_points.append(point)
+
+    # Build colored Open3D point cloud
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(np.array(valid_points))
+    pcd.colors = o3d.utility.Vector3dVector(np.array(colors))
+    return pcd
+
+
 def main():
     client = airsim.MultirotorClient()
     client.confirmConnection()
@@ -133,18 +134,15 @@ def main():
     client.armDisarm(True)
     print("Started")
 
-    #Takeoff
     client.takeoffAsync().join()
-    client.moveToZAsync(-50, 2).join() 
+    client.moveToZAsync(-50, 2).join()
 
-    # Get Lidar data
+    # Get Lidar + image
     lidar_data = client.getLidarData('GPULidar1', 'Drone1')
-    print(lidar_data)
     pcd_raw = get_open3d_point_cloud(lidar_data.point_cloud)
-    pcd = rotate_point_cloud(pcd_raw, angle_deg=-90)
+    pcd = rotate_point_cloud(pcd_raw)
     points = np.asarray(pcd.points)
 
-    # Get image data
     image = get_current_image(client)
     image = get_current_image(client)
     image = get_current_image(client)
@@ -155,21 +153,60 @@ def main():
     image = get_current_image(client)
     image = get_current_image(client)
 
-    # Pick random landing spot (take pixel coord from image find voxel closest to pixel) get out a coordinate point 3d
+
     h_img, w_img = image.shape[:2]
-    landing_center = (int(w_img * 0.40), int(h_img * 0.40))
+    landing_center = (int(w_img * 0.30), int(h_img * 0.30))
+    print(f"width: {w_img}")
     fx, fy = calculate_focal_length_from_fov(w_img, h_img, 120)
-    coord_to_pixel = map_coord_to_pixel(image, points, fx, fy)
-    landing_voxel = find_closest_voxel_to_pixel(landing_center, coord_to_pixel)
+    pixel_to_coord = map_coord_to_pixel(image, points, fx, fy)
+    landing_pixel, landing_voxel = find_closest_voxel_to_pixel(landing_center, pixel_to_coord)
+    colored_pcd = colorize_point_cloud_with_image(points, image, fx, fy)
+    o3d.visualization.draw_geometries([colored_pcd])
 
-    # Find coord relative to real-world
-    state = client.getMultirotorState()
-    pos = state.kinematics_estimated.position
+    crop_image_around_pixel(image, landing_center, size=100)
 
-    target_coords = (pos.x_val - landing_voxel[0], pos.y_val + landing_voxel[1])
-    client.moveToPositionAsync(target_coords[0], target_coords[1], pos.z_val, velocity=3.0).join()
+    # Get current GPS
+    gps_data = client.getGpsData(gps_name="GPS", vehicle_name="Drone1").gnss.geo_point
+    current_gps = (gps_data.latitude, gps_data.longitude, gps_data.altitude)
+
+    if landing_voxel is None:
+        print("No valid landing voxel found.")
+        return
+
+    # Conversion: 1 meter ≈ 0.000009 deg lat, 0.000011 deg lon (approx.)
+    METERS_TO_LAT = 0.000009
+    METERS_TO_LON = 0.000011
+
+    x_m, y_m, _ = landing_voxel  # x: right, y: forward in LIDAR
+
+    offset_lat = y_m * METERS_TO_LAT
+    offset_lon = -x_m * METERS_TO_LON
+
+    target_lat = current_gps[0] + offset_lat
+    target_lon = current_gps[1] + offset_lon
+
+    # Estimate NED displacement from GPS difference (in meters)
+    dx = -y_m
+    dy = x_m # because forward is negative NED x
+
+    print(f"Desired landing pixel: {landing_center}")
+    print(f"Actual landing pixel: {landing_pixel}")
+    print(f"Current GPS: {current_gps}")
+    print(f"Target GPS: (lat: {target_lat}, lon: {target_lon})")
+    print(f"Estimated move offset in NED frame: dx={dx:.2f}m, dy={dy:.2f}m")
+
+    # Move using relative position (NED)
+    current_pose = client.getMultirotorState().kinematics_estimated.position
+    target_x = current_pose.x_val + dx
+    target_y = current_pose.y_val + dy
+    target_z = current_pose.z_val  # stay at same height
+
+    client.moveToPositionAsync(target_x, target_y, target_z, velocity=3.0).join()
 
     land(client)
+
+    final_gps = client.getGpsData(gps_name="GPS", vehicle_name="Drone1").gnss.geo_point
+    print(f"Final drone GPS: (lat: {final_gps.latitude}, lon: {final_gps.longitude})")
 
     client.armDisarm(False)
     client.enableApiControl(False)
