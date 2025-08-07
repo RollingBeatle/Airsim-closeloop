@@ -29,6 +29,7 @@ class MLLMAgent(ABC):
     @abstractmethod
     def get_mllm_agent(self):
         pass
+
     @abstractmethod
     def mllm_call(self):
         pass
@@ -86,16 +87,25 @@ class GPTAgent(MLLMAgent):
             detection = Image.fromarray(cv2.imread(image))
             w, h = detection.size
             upper_left = detection.crop((0,0,w//2,h//2))
+            print(f"The bounding box upper_left {upper_left}")
             upper_right = detection.crop((w//2,0,w,h//2))
+            print(f"The bounding box upper_right {upper_right}")
             bottom_left = detection.crop((0,h//2,w//2,h))
+            print(f"The bounding box bottom_left {bottom_left}")
             bottom_right = detection.crop((w//2,h//2,w,h))
+            print(f"The bounding box bottom_left {bottom_right}")
 
             left = (w - 150) // 2
             top = (h - 150) // 2
             right = (w + 150) // 2
             bottom = (h + 150) // 2
             center = detection.crop((left,top,right,bottom))
-
+            print(f"The bounding box center {center}")
+            upper_left.show()
+            upper_right.show()
+            bottom_left.show()
+            bottom_right.show()
+            center.show()
             detections = [upper_left, upper_right, bottom_left, bottom_right, center]
         # we want to send at most 5 areas to the LLM
         if len(detections) > 5:
@@ -118,6 +128,41 @@ class GPTAgent(MLLMAgent):
         return detections[int(result['Indices'][0])]
         # return result['Coordinates'][0]
     
+    def mllm_call_new(self,detections):
+        # Get GPT Client
+        clientGPT = self.get_mllm_agent()
+        with open(self.PROMPTS_FILE, 'r') as f:
+                # Parsing the JSON file into a Python dictionary
+                prompts = json.load(f)
+
+        if self.LIDAR:
+            prompt = prompts["grid_prompt"]
+        
+        elif self.USE_MONOCULAR or self.USE_STEREO:
+            prompt = prompts["basic_prompt"]
+                    
+        # we want to send at most 5 areas to the LLM
+        if len(detections) > 5:
+            sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height)
+            detections = sorted_images_by_area[:4]
+        
+        
+        resp = self.completion_retry(
+        content=[
+                    {"type": "image_url", "image_url": {"url": self.format_image(det)}}
+                    for det in detections  
+                ] + [{"type": "text", "text": prompt}],
+        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+        response_format=ResponseFormatBasic
+        )
+
+        result = json.loads(resp.choices[0].message.content)
+        rich.print(result)  
+        # detections[int(result['Indices'][0])].show()
+        return detections[int(result['Indices'][0])]
+        # return result['Coordinates'][0]
+    
+
     def log_errors(self, retry_state):
         print(
         "Request failed. Current retry attempts:{}. Sleep for {:.2f}. Exception: {}".format(

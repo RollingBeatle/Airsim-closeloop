@@ -4,21 +4,30 @@ import cv2
 from PIL import Image
 import rich
 import shutil
+import cosysairsim as airsim
+import numpy as np
 
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
-from drone_movement import monocular_landing
+from drone_movement import monocular_landing, DroneMovement
 from MLLM_Agent import GPTAgent
+from image_processing import ImageProcessing
 
 # CONFIGURATION VARIABLES
 # TODO: integrate configuration into agent
-USE_MONOCULAR = True
+PIPELINE = True
 LIDAR = False
 MOVE = True
 PROMPTS_FILE = 'prompts.json'
 DELETE_LZ = True
 DIRS = ["images", "landing_zones","point_cloud_data"]
-
+IMAGE_WIDTH   = 960
+IMAGE_HEIGHT  = 540
+FOV_DEGREES   = 90
+CAM_NAME      = "frontcamera"
+EXAMPLE_POS   = (0,-35,-100)
+FIXED        = True        
+MAX_HEIGHT = 155
 
 
 def create_subdirs():
@@ -55,13 +64,15 @@ def main():
         # show results
         rich.print(result, justification)
 
-    elif USE_MONOCULAR:
+    elif True:
         # Monocular pipeline
         monocular_landing(MLLM_Agent.mllm_call,MOVE)
 
 def main_pipeline():
 
     MLLM_Agent = GPTAgent()
+    processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES)
+    drone = DroneMovement()
     # get data
     if DELETE_LZ: clear_dirs()
     create_subdirs()
@@ -76,11 +87,48 @@ def main_pipeline():
         # show results
         rich.print(result, justification)
 
-    elif USE_MONOCULAR:
+    elif PIPELINE:
         # Monocular pipeline
-        monocular_landing(MLLM_Agent.mllm_call,MOVE)
+        # monocular_landing(MLLM_Agent.mllm_call,MOVE)
+        if MOVE:
+            drone.position_drone()
+        else:
+            drone.position_drone(fixed=False)
+        
+        curr_height = drone.get_rangefinder()
+        print("This is the height ", curr_height)
+        while abs(curr_height) > 15:
+            resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+            img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
+            pillow_img = Image.fromarray(img)
+            # depth map image and segmentation
+            depth_map = processor.depth_analysis_depth_anything(pillow_img)
+            img2 = np.array(depth_map)
+            # get boxes of surfaces
+            np_arr = np.array(pillow_img)
+            areas = processor.segment_surfaces(img2, np_arr)
+            # save image
+            cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+            # crop
+            img_copy = np_arr.copy()
+            processor.crop_surfaces(areas, img_copy)
+            # read saved detections
+            detections = [Image.fromarray(cv2.imread(os.path.join("./"+DIRS[1], f)))
+                        for f in os.listdir("./"+DIRS[1])]
+            if not detections or curr_height < 20 :
+                detections = processor.crop_five_cuadrants("images/mono.jpg")
+            # 2) ask LLM for surface
+            
+            select_pil_image = MLLM_Agent.mllm_call_new(detections)      
+            px, py = processor.match_areas(areas,select_pil_image)
+            pose = drone.client.getMultirotorState().kinematics_estimated.position
+            tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py)
+            curr_height = drone.move_drone(tx,ty,tz)
+            clear_dirs()
+            create_subdirs()
 
+        
 
 if __name__ == "__main__":
     
-    main()
+    main_pipeline()
