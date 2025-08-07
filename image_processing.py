@@ -15,7 +15,7 @@ class ImageProcessing:
         self.height = height
         self.fov_degrees = fov_degrees
     
-    def segment_surfaces(img, original):
+    def segment_surfaces(self, img, original):
     
         depth = cv2.GaussianBlur(img, (5, 5), 0)
 
@@ -48,7 +48,7 @@ class ImageProcessing:
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
         return areas
         
-    def crop_surfaces(area, img):
+    def crop_surfaces(self, area, img):
         out = img.copy()
         i = 0
         for a in area:
@@ -87,7 +87,7 @@ class ImageProcessing:
         return detections
     
         # Depth Anything V2
-    def depth_analysis_depth_anything(image:Image):
+    def depth_analysis_depth_anything(self, image:Image):
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # load pipeline
@@ -99,7 +99,7 @@ class ImageProcessing:
         return depth_image
     
         # segment images based on depth map
-    def segment_surfaces(img, original):
+    def segment_surfaces(self, img, original):
         
         depth = cv2.GaussianBlur(img, (5, 5), 0)
 
@@ -131,6 +131,18 @@ class ImageProcessing:
         # Save annotated image
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
         return areas
+    
+    def match_areas(self, areas, select_pil_image):
+        for area in areas:
+            print(area)
+            area_size = (area[3]-area[1])*(area[2]-area[0])
+            img_size = select_pil_image.size[0]*select_pil_image.size[1] 
+            if area_size == img_size:
+                px = ((area[3] + area[1])//2) 
+                py = ((area[2] + area[0])//2) 
+                print(px,py)
+                break
+        return px, py
     
     def inverse_perspective_mapping(self, pose, px, py):
         A = abs(pose.z_val)
