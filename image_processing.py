@@ -15,38 +15,6 @@ class ImageProcessing:
         self.height = height
         self.fov_degrees = fov_degrees
     
-    def segment_surfaces(self, img, original):
-    
-        depth = cv2.GaussianBlur(img, (5, 5), 0)
-
-        # Compute gradient magnitude
-        grad_x = cv2.Sobel(depth, cv2.CV_32F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(depth, cv2.CV_32F, 0, 1, ksize=3)
-        grad_mag = np.sqrt(grad_x**2 + grad_y**2)
-
-        # Threshold to get flat regions
-        flat_mask = (grad_mag < 10).astype(np.uint8)
-        flat_mask = cv2.morphologyEx(flat_mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
-
-        # Label regions
-        labeled = measure.label(flat_mask, connectivity=2)
-        props = measure.regionprops(labeled)
-
-        # Load original image for annotation
-        annotated = original.copy()
-        areas = []
-        width_src, height_src= img.shape
-        size = width_src*height_src
-        # segment flat surfaces
-        for p in props:
-            if p.area > 700:  # filter out small noise
-                minr, minc, maxr, maxc = p.bbox
-                cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
-                if not size == maxc*maxr:
-                    areas.append((minr, minc, maxr, maxc))       
-        # Save annotated image
-        cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
-        return areas
         
     def crop_surfaces(self, area, img):
         out = img.copy()

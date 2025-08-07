@@ -9,7 +9,7 @@ import numpy as np
 
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
-from drone_movement import monocular_landing, DroneMovement
+from drone_movement import DroneMovement
 from MLLM_Agent import GPTAgent
 from image_processing import ImageProcessing
 
@@ -48,26 +48,6 @@ def clear_dirs():
         shutil.rmtree(del_dir)
 
     
-def main():
-    MLLM_Agent = GPTAgent()
-    # get data
-    if DELETE_LZ: clear_dirs()
-    create_subdirs()
-    if LIDAR:
-        # LiDAR pipeline
-        pc_name, img_name = "point_cloud_1", "img_1"
-        get_image_lidar(pc_name,img_name)
-        cv2_image = cv2.imread(f'images/{img_name}.png')
-        find_roofs(f"{pc_name}.pcd",f"{img_name}.png")
-        image = Image.fromarray(cv2_image)
-        result, justification = MLLM_Agent.mllm_call(image)
-        # show results
-        rich.print(result, justification)
-
-    elif True:
-        # Monocular pipeline
-        monocular_landing(MLLM_Agent.mllm_call,MOVE)
-
 def main_pipeline():
 
     MLLM_Agent = GPTAgent()
@@ -119,7 +99,7 @@ def main_pipeline():
                 detections = processor.crop_five_cuadrants("images/mono.jpg")
             # 2) ask LLM for surface
             
-            select_pil_image = MLLM_Agent.mllm_call_new(detections)      
+            select_pil_image = MLLM_Agent.mllm_call(detections)      
             px, py = processor.match_areas(areas,select_pil_image)
             pose = drone.client.getMultirotorState().kinematics_estimated.position
             tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py)
