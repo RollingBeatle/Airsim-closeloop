@@ -87,7 +87,7 @@ class GPTAgent(MLLMAgent):
             w, h = detection.size
             upper_left = detection.crop((0,0,w//2,h//2))
             upper_right = detection.crop((w//2,0,w,h//2))
-            bottom_left = detection.crop((0,h//2,w//2,h//2))
+            bottom_left = detection.crop((0,h//2,w//2,h))
             bottom_right = detection.crop((w//2,h//2,w,h))
 
             left = (w - 150) // 2
@@ -97,8 +97,8 @@ class GPTAgent(MLLMAgent):
             center = detection.crop((left,top,right,bottom))
 
             detections = [upper_left, upper_right, bottom_left, bottom_right, center]
-        # we want to send at most 4 areas to the LLM
-        if len(detections) > 4:
+        # we want to send at most 5 areas to the LLM
+        if len(detections) > 5:
             sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height)
             detections = sorted_images_by_area[:4]
         
