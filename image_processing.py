@@ -9,11 +9,12 @@ from skimage import measure
 
 class ImageProcessing:
 
-    def __init__(self, width, height, fov_degrees):
+    def __init__(self, width, height, fov_degrees, debug=True):
         # Camera settings
         self.width = width
         self.height = height
         self.fov_degrees = fov_degrees
+        self.debug = True
     
         
     def crop_surfaces(self, area, img):
@@ -29,30 +30,37 @@ class ImageProcessing:
 
         detection = Image.fromarray(cv2.imread(image))
         w, h = detection.size
-        upper_left = detection.crop((0,0,w//2,h//2))
-        upper_right = detection.crop((w//2,0,w,h//2))
-        bottom_left = detection.crop((0,h//2,w//2,h))
-        bottom_right = detection.crop((w//2,h//2,w,h))
+        left = (w - 200) // 2
+        top = (h - 200) // 2
+        right = (w + 200) // 2
+        bottom = (h + 200) // 2
+        ul_bb = (0,0,w//2,h//2)
+        ur_bb = (w//2,0,w,h//2)
+        bl_bb = (0,h//2,w//2,h)
+        br_bb = (w//2,h//2,w,h)
+        center_bb = (left,top,right,bottom)
         
-        print(f"The bounding box upper_left {upper_left}")
-        print(f"The bounding box upper_right {upper_right}")
-        print(f"The bounding box bottom_left {bottom_right}")
-        print(f"The bounding box bottom_left {bottom_left}")
+        upper_left = detection.crop(ul_bb)
+        upper_right = detection.crop(ur_bb)
+        bottom_left = detection.crop(bl_bb)
+        bottom_right = detection.crop(br_bb)
+        center = detection.crop(center_bb)
 
-        left = (w - 150) // 2
-        top = (h - 150) // 2
-        right = (w + 150) // 2
-        bottom = (h + 150) // 2
-        center = detection.crop((left,top,right,bottom))
-
-        print(f"The bounding box center {center}")
-        upper_left.show()
-        upper_right.show()
-        bottom_left.show()
-        bottom_right.show()
-        center.show()
+        bounding_box = [ul_bb, ur_bb, bl_bb, br_bb, center_bb]
+        
+        if self.debug:
+            upper_left.show()
+            input("Showing upper left, press any key")
+            upper_right.show()
+            input("Showing upper right, press any key")
+            bottom_left.show()
+            input("Showing bottom left, press any key")
+            bottom_right.show()
+            input("Showing bottom right, press any key")
+            center.show()
+            input("Showing center, press any key")
         detections = [upper_left, upper_right, bottom_left, bottom_right, center]
-        return detections
+        return detections, bounding_box
     
         # Depth Anything V2
     def depth_analysis_depth_anything(self, image:Image):
@@ -112,8 +120,8 @@ class ImageProcessing:
                 break
         return px, py
     
-    def inverse_perspective_mapping(self, pose, px, py):
-        A = abs(pose.z_val)
+    def inverse_perspective_mapping(self, pose, px, py, surface_height):
+        A = surface_height
         hFOV = math.radians(self.fov_degrees)
         vFOV = 2*math.atan(math.tan(hFOV/2)*(self.height/self.width))
         world_w = 2*A*math.tan(hFOV/2); world_h = 2*A*math.tan(vFOV/2)
