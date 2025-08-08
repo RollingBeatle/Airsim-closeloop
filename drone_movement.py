@@ -47,8 +47,12 @@ class DroneMovement:
     
     def land_drone(self): 
 
+        pose = self.client.getMultirotorState().kinematics_estimated.position
         self.client.landAsync().join()
-        time.sleep(1)
-        self.client.armDisarm(False)
+        time.sleep(5)
+        landing_dist = self.get_rangefinder()
+        landing_dist = pose.z_val + landing_dist - 2
+        self.client.moveToZAsync(landing_dist,3).join()
+        # self.client.armDisarm(False)
 
 
