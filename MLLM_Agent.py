@@ -95,7 +95,7 @@ class GPTAgent(MLLMAgent):
         result = json.loads(resp.choices[0].message.content)
         rich.print(result)  
         # detections[int(result['Indices'][0])].show()
-        return detections[int(result['Indices'][0])]
+        return detections[int(result['Indices'][0])], int(result['Indices'][0])
         # return result['Coordinates'][0]
     
 

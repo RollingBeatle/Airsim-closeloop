@@ -68,8 +68,6 @@ def main_pipeline():
         rich.print(result, justification)
 
     elif PIPELINE:
-        # Monocular pipeline
-        # monocular_landing(MLLM_Agent.mllm_call,MOVE)
         if MOVE:
             drone.position_drone()
         else:
@@ -95,17 +93,25 @@ def main_pipeline():
             # read saved detections
             detections = [Image.fromarray(cv2.imread(os.path.join("./"+DIRS[1], f)))
                         for f in os.listdir("./"+DIRS[1])]
+            bounding_boxes = None
             if not detections or curr_height < 20 :
-                detections = processor.crop_five_cuadrants("images/mono.jpg")
+                detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
             # 2) ask LLM for surface
             
-            select_pil_image = MLLM_Agent.mllm_call(detections)      
-            px, py = processor.match_areas(areas,select_pil_image)
+            select_pil_image, index = MLLM_Agent.mllm_call(detections)   
+            if bounding_boxes:
+                print("the index of the image",index)
+                px = ((bounding_boxes[index][3] + bounding_boxes[index][1])//2) 
+                py = ((bounding_boxes[index][2] + bounding_boxes[index][0])//2) 
+                print("pixels",px,py)
+            else:
+                px, py = processor.match_areas(areas,select_pil_image)
             pose = drone.client.getMultirotorState().kinematics_estimated.position
-            tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py)
+            tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
             curr_height = drone.move_drone(tx,ty,tz)
             clear_dirs()
             create_subdirs()
+        drone.land_drone()
 
         
 
