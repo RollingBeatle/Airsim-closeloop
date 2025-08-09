@@ -14,7 +14,7 @@ class ImageProcessing:
         self.width = width
         self.height = height
         self.fov_degrees = fov_degrees
-        self.debug = True
+        self.debug = debug
     
         
     def crop_surfaces(self, area, img):
@@ -30,10 +30,10 @@ class ImageProcessing:
 
         detection = Image.fromarray(cv2.imread(image))
         w, h = detection.size
-        left = (w - 200) // 2
-        top = (h - 200) // 2
-        right = (w + 200) // 2
-        bottom = (h + 200) // 2
+        left = (w - 250) // 2
+        top = (h - 250) // 2
+        right = (w + 250) // 2
+        bottom = (h + 250) // 2
         ul_bb = (0,0,w//2,h//2)
         ur_bb = (w//2,0,w,h//2)
         bl_bb = (0,h//2,w//2,h)
@@ -47,19 +47,13 @@ class ImageProcessing:
         center = detection.crop(center_bb)
 
         bounding_box = [ul_bb, ur_bb, bl_bb, br_bb, center_bb]
-        
-        if self.debug:
-            upper_left.show()
-            input("Showing upper left, press any key")
-            upper_right.show()
-            input("Showing upper right, press any key")
-            bottom_left.show()
-            input("Showing bottom left, press any key")
-            bottom_right.show()
-            input("Showing bottom right, press any key")
-            center.show()
-            input("Showing center, press any key")
         detections = [upper_left, upper_right, bottom_left, bottom_right, center]
+        if self.debug:
+            # Show all detections
+            for i in range(len(detections)):
+                detections[i].show()
+                input(f"Showing {i} instance, press enter")
+                    
         return detections, bounding_box
     
         # Depth Anything V2

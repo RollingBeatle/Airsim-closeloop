@@ -27,14 +27,18 @@ class DroneMovement:
             self.client.moveToZAsync(z0,2).join(); time.sleep(1)
 
     def move_drone(self, tx, ty, tz):
+
         self.client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(2)
         
-        # 5) go down to a desired z
+        return self.move_to_z(tz)
+    
+    def move_to_z(self, tz):
+
         distz = self.get_rangefinder()
         print("distance to surface", distz)
         targetz = tz + (distz*0.8) 
         print("target position", targetz)
-        self.client.moveToZAsync(targetz,3).join()
+        self.client.moveToZAsync(targetz,3).join();time.sleep(2)
         return self.get_rangefinder()
         
 
@@ -51,7 +55,8 @@ class DroneMovement:
         self.client.landAsync().join()
         time.sleep(5)
         landing_dist = self.get_rangefinder()
-        landing_dist = pose.z_val + landing_dist - 2
+        landing_dist = pose.z_val + landing_dist - 1
+        print("Landing drone")
         self.client.moveToZAsync(landing_dist,3).join()
         # self.client.armDisarm(False)
 
