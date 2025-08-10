@@ -5,20 +5,25 @@
 import cosysairsim as airsim
 import numpy as np
 import time
+from pynput import keyboard
 
 
 class DroneMovement:
     
-    def __init__(self, initial_pose = (0,-35,-100)):
+    def __init__(self, initial_pose = (0,-35,-100), debug=True):
         self.client = airsim.MultirotorClient()
         self.initial_pos = initial_pose
-
-    def position_drone(self, fixed=True):
-    # Position the drone randomly in demo
         self.client.confirmConnection()
         
         self.client.enableApiControl(True); self.client.armDisarm(True)
         self.client.takeoffAsync().join(); time.sleep(1)
+
+        self.speed = 2  # m/s
+        self.duration = 0.5 
+        self.debug = debug
+    
+    def position_drone(self, fixed=True):
+    # Position the drone randomly in demo
         if fixed:
             x,y,z = self.initial_pos
             self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
@@ -58,6 +63,51 @@ class DroneMovement:
         landing_dist = pose.z_val + landing_dist - 1
         print("Landing drone")
         self.client.moveToZAsync(landing_dist,3).join()
-        # self.client.armDisarm(False)
+        self.client.armDisarm(False)
+    
+
+    def manual_control(self):
+        listener = keyboard.Listener(on_press=self.on_press)
+        listener.start()
+        self.running = True
+        self.command_queue = []
+        print("Controls: w/s = forward/back | a/d = left/right | q/e = up/down | x = exit | k = position")
+        while self.running:
+            if self.command_queue:
+                k = self.command_queue.pop(0)
+                if self.debug: print(f"pressed {k}")
+                if k == 'w':
+                    self.client.moveByVelocityAsync(self.speed, 0, 0, self.duration).join()
+                elif k == 's':
+                    self.client.moveByVelocityAsync(-self.speed, 0, 0, self.duration).join()
+                elif k == 'a':
+                    self.client.moveByVelocityAsync(0, -self.speed, 0, self.duration).join()
+                elif k == 'd':
+                    self.client.moveByVelocityAsync(0,self.speed, 0, self.duration).join()
+                elif k == 'q':
+                    self.client.moveByVelocityAsync(0, 0, -self.speed, self.duration).join()
+                elif k == 'e':
+                    self.client.moveByVelocityAsync(0, 0, self.speed, self.duration).join()
+                elif k == 'm':
+                    self.client.moveByAngleThrottleAsync(0,0,self.speed,-self.speed,self.duration).join()
+                elif k == 'n':
+                    self.client.moveByAngleThrottleAsync(0,0,self.speed,self.speed,self.duration).join()
+                elif k == 'k':
+                    print(self.client.getMultirotorState().kinematics_estimated.position)
+
+    def on_press(self, key):
+        keys = ['w', 's', 'a', 'd', 'q', 'e','k','m', 'n']
+        try:
+            k = key.char.lower()
+            if k == 'x':
+                self.running = False
+            elif k in keys:
+                self.command_queue.append(k)
+        except AttributeError:
+            pass
+        
+
+    
+
 
 
