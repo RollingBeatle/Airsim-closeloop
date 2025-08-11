@@ -30,10 +30,10 @@ class ImageProcessing:
 
         detection = Image.fromarray(cv2.imread(image))
         w, h = detection.size
-        left = (w - 250) // 2
-        top = (h - 250) // 2
-        right = (w + 250) // 2
-        bottom = (h + 250) // 2
+        left = (w - 480) // 2
+        top = (h - 270) // 2
+        right = (w + 480) // 2
+        bottom = (h + 270) // 2
         ul_bb = (0,0,w//2,h//2)
         ur_bb = (w//2,0,w,h//2)
         bl_bb = (0,h//2,w//2,h)
@@ -66,20 +66,22 @@ class ImageProcessing:
         # inference
         depth_image = pipe(image)["depth"]
         depth_image.save("images/depth_image.jpg")
+        if self.debug: 
+            depth_image.show()
         return depth_image
     
         # segment images based on depth map
     def segment_surfaces(self, img, original):
         
-        depth = cv2.GaussianBlur(img, (5, 5), 0)
+        depth = cv2.GaussianBlur(img, (3, 3), 0)
 
         # Compute gradient magnitude
-        grad_x = cv2.Sobel(depth, cv2.CV_32F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(depth, cv2.CV_32F, 0, 1, ksize=3)
+        grad_x = cv2.Sobel(depth, cv2.CV_32F, 1, 0, ksize=5)
+        grad_y = cv2.Sobel(depth, cv2.CV_32F, 0, 1, ksize=5)
         grad_mag = np.sqrt(grad_x**2 + grad_y**2)
 
         # Threshold to get flat regions
-        flat_mask = (grad_mag < 10).astype(np.uint8)
+        flat_mask = (grad_mag < 50).astype(np.uint8)
         flat_mask = cv2.morphologyEx(flat_mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
 
         # Label regions
@@ -100,6 +102,8 @@ class ImageProcessing:
                     areas.append((minr, minc, maxr, maxc))       
         # Save annotated image
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
+        if self.debug:
+            input("Press to continue")
         return areas
     
     def match_areas(self, areas, select_pil_image):
