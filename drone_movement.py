@@ -27,40 +27,15 @@ class DroneMovement:
     # Position the drone randomly in demo
         if fixed:
             x,y,z = self.initial_pos
-            # self.client.moveToPositionAsync(x,y,z,3)
+            self.client.moveToPositionAsync(x,y,z,3)
         
         else:
             z0 = -np.random.uniform(40, 50)
             pose = self.client.getMultirotorState().kinematics_estimated.position
-            # self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
+            self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
             x,y,z = position
             
-            # self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
-
-        while True:
-            # Check if the drone is within range of the position
-            pos = self.client.getMultirotorState().kinematics_estimated.position
-            if self.distance_2d(pos, (x,y)) < 2: # arbitrary tolerance
-                print("Drone positioned")
-                break
-
-            # Start moving toward goal (non-blocking)
-            moving_to_pose = self.client.moveToPositionAsync(x,y,z,3)
-
-            # Monitor for a collision
-            while not moving_to_pose.done():
-                col = self.client.simGetCollisionInfo()
-                if col.has_collided:
-                    print(f"Collision detected, repositioning...")
-
-                    # Stop and move backward for 2 sec
-                    self.client.cancelLastTask()
-                    self.client.moveByVelocityAsync(-1, 0, 0, 2).join()
-                    # Move to the top of z axis before trying to move again 
-                    self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
-                    # Break inner loop to re-issue move command
-                    break
-                time.sleep(0.1)
+            self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
         
 
     def move_drone(self, tx, ty, tz):
