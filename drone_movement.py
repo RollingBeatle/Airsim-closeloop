@@ -5,6 +5,7 @@
 import cosysairsim as airsim
 import numpy as np
 import time
+import math
 from pynput import keyboard
 
 
@@ -22,14 +23,45 @@ class DroneMovement:
         self.duration = 0.5 
         self.debug = debug
     
-    def position_drone(self, fixed=True):
+    def position_drone(self, fixed=True, position=(0,0,0)):
     # Position the drone randomly in demo
         if fixed:
             x,y,z = self.initial_pos
-            self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
+            # self.client.moveToPositionAsync(x,y,z,3)
+        
         else:
             z0 = -np.random.uniform(40, 50)
-            self.client.moveToZAsync(z0,2).join(); time.sleep(1)
+            pose = self.client.getMultirotorState().kinematics_estimated.position
+            # self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
+            x,y,z = position
+            
+            # self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
+
+        while True:
+            # Check if the drone is within range of the position
+            pos = self.client.getMultirotorState().kinematics_estimated.position
+            if self.distance_2d(pos, (x,y)) < 2: # arbitrary tolerance
+                print("Drone positioned")
+                break
+
+            # Start moving toward goal (non-blocking)
+            moving_to_pose = self.client.moveToPositionAsync(x,y,z,3)
+
+            # Monitor for a collision
+            while not moving_to_pose.done():
+                col = self.client.simGetCollisionInfo()
+                if col.has_collided:
+                    print(f"Collision detected, repositioning...")
+
+                    # Stop and move backward for 2 sec
+                    self.client.cancelLastTask()
+                    self.client.moveByVelocityAsync(-1, 0, 0, 2).join()
+                    # Move to the top of z axis before trying to move again 
+                    self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
+                    # Break inner loop to re-issue move command
+                    break
+                time.sleep(0.1)
+        
 
     def move_drone(self, tx, ty, tz):
 
@@ -57,13 +89,14 @@ class DroneMovement:
     def land_drone(self): 
 
         pose = self.client.getMultirotorState().kinematics_estimated.position
-        self.client.landAsync().join()
-        time.sleep(5)
+        
         landing_dist = self.get_rangefinder()
-        landing_dist = pose.z_val + landing_dist - 1
+        landing_dist = pose.z_val + landing_dist - 2
         print("Landing drone")
         self.client.moveToZAsync(landing_dist,3).join()
-        self.client.armDisarm(False)
+        self.client.landAsync().join()
+        time.sleep(5)
+        # self.client.armDisarm(False)
     
 
     def manual_control(self):
@@ -105,6 +138,9 @@ class DroneMovement:
                 self.command_queue.append(k)
         except AttributeError:
             pass
+    
+    def distance_2d(self, pos1, pos2):
+        return math.sqrt((pos1.x_val - pos2[0])**2 + (pos1.y_val - pos2[1])**2)
         
 
     
