@@ -23,7 +23,10 @@ import rich
 
 class MLLMAgent(ABC):
 
-    def __init__(self):
+    def __init__(self, prompt, api_file):
+        # prompt, api key
+        self.prompt = prompt
+        self.api_file = api_file
         super().__init__()
 
     @abstractmethod
@@ -49,15 +52,8 @@ class ResponseFormatBasic(BaseModel):
 
 class GPTAgent(MLLMAgent):
 
-    USE_MONOCULAR = True
-    USE_STEREO = False
-    LIDAR = False
-    MOVE = True
-    PROMPTS_FILE = 'prompts.json'
-
     def get_mllm_agent(self):
-
-        with open("my-k-api.txt", "r") as f:
+        with open(self.api_file, "r") as f:
             api_key = f.read().strip()
 
         clientGPT = OpenAI(api_key=api_key)
@@ -67,19 +63,10 @@ class GPTAgent(MLLMAgent):
     def mllm_call(self,detections):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
-        with open(self.PROMPTS_FILE, 'r') as f:
-                # Parsing the JSON file into a Python dictionary
-                prompts = json.load(f)
-
-        if self.LIDAR:
-            prompt = prompts["grid_prompt"]
-        
-        elif self.USE_MONOCULAR or self.USE_STEREO:
-            prompt = prompts["basic_prompt"]
-                    
+                   
         # we want to send at most 5 areas to the LLM
         if len(detections) > 5:
-            sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height)
+            sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
             detections = sorted_images_by_area[:4]
         
         
@@ -87,7 +74,7 @@ class GPTAgent(MLLMAgent):
         content=[
                     {"type": "image_url", "image_url": {"url": self.format_image(det)}}
                     for det in detections  
-                ] + [{"type": "text", "text": prompt}],
+                ] + [{"type": "text", "text": self.prompt}],
         model="gpt-4o-2024-11-20", clientGPT=clientGPT,
         response_format=ResponseFormatBasic
         )

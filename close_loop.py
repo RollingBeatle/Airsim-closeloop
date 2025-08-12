@@ -9,6 +9,7 @@ import numpy as np
 import time
 import pandas as pd
 import os
+import json
 
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
@@ -50,7 +51,9 @@ DIRS = ["images", "landing_zones","point_cloud_data"]
 # MLLM configurations
 # -----------------------------------------
 PROMPTS_FILE = 'prompts.json'
-
+PROMPT_ONE = True
+PROMPT_TWO = False
+API_FILE = "my-k-api.txt"
 # creates necessary directories
 def create_subdirs():
     # add more dirs if needed
@@ -89,8 +92,21 @@ def clear_dirs():
 
 def main_pipeline():
 
+    # First load the prompt
+    try:
+        with open(PROMPTS_FILE, 'r') as f:
+                # Parsing the JSON file into a Python dictionary
+                prompts = json.load(f)
+    except FileNotFoundError:
+        print("prompt file not found")
+        return
+    if PROMPT_TWO:
+            prompt = prompts["grid_prompt"]
+        
+    else:
+            prompt = prompts["basic_prompt"]
     # create necessary classes
-    MLLM_Agent = GPTAgent()
+    MLLM_Agent = GPTAgent(prompt, API_FILE)
     processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=False)
     drone = DroneMovement()
 
