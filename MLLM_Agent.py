@@ -95,8 +95,11 @@ class GPTAgent(MLLMAgent):
         result = json.loads(resp.choices[0].message.content)
         rich.print(result)  
         # detections[int(result['Indices'][0])].show()
-        return detections[int(result['Indices'][0])], int(result['Indices'][0])
+        try:
+            return detections[int(result['Indices'][0])], int(result['Indices'][0]), result['Answer']
         # return result['Coordinates'][0]
+        except:
+            return None, 0, result['Answer']
     
 
     def log_errors(self, retry_state):
