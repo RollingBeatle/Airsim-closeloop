@@ -26,6 +26,7 @@ ALT_PIPELINE = False
 ONLY_CROP_PIPELINE = True
 DEPTH_ONLY_PIPELINE = False
 LIDAR = False
+LANDING_ZONE_DEPTH_ESTIMATED = True
 # Drone Movement Configurations
 # -----------------------------------------
 MOVE_FIXED = True
@@ -153,6 +154,7 @@ def main_pipeline():
                 cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
                 # surface crop
                 bounding_boxes = None
+                depth_map = None
                 if DEPTH_ONLY_PIPELINE or ALT_PIPELINE:
                     # depth map image and segmentation
                     depth_map = processor.depth_analysis_depth_anything(pillow_img)
@@ -185,7 +187,13 @@ def main_pipeline():
                     px, py = processor.match_areas(areas,select_pil_image)
                 # do the IPM to get the coordinates
                 pose = drone.client.getMultirotorState().kinematics_estimated.position
-                tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
+                surface_height = drone.get_rangefinder()
+                z_map = processor.get_Z_Values_From_Depth_Map(px, py, curr_height, surface_height, depth_map)
+                landing_zone_height = z_map(depth_map[py, px])
+                if LANDING_ZONE_DEPTH_ESTIMATED:
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
+                else: 
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
                 # start descent or move to the x,y in crop pipeline
                 if ONLY_CROP_PIPELINE:
                     if index == 4:

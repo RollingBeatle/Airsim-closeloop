@@ -128,3 +128,16 @@ class ImageProcessing:
         north = -dy*mpp_y; east = dx*mpp_x
         tx = pose.x_val + north; ty = pose.y_val + east; tz = pose.z_val
         return tx,ty,tz
+
+    def get_Z_Values_From_Depth_Map(self, surface_height, current_height, depth_map):
+        depth_map = np.array(depth_map)
+        ground_value = np.min(depth_map)
+        surface_value = np[self.width//2][self.height//2] 
+  
+        # Calculate slope
+        m = (current_height - surface_height) / (ground_value - surface_value)
+        # Calculate y-intercept
+        b = surface_height - m * surface_value
+        
+        # Return a function y(x)
+        return lambda x: m * x + b
