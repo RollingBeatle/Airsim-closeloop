@@ -26,7 +26,7 @@ ALT_PIPELINE = False
 ONLY_CROP_PIPELINE = True
 DEPTH_ONLY_PIPELINE = False
 LIDAR = False
-LANDING_ZONE_DEPTH_ESTIMATED = True
+LANDING_ZONE_DEPTH_ESTIMATED = False
 # Drone Movement Configurations
 # -----------------------------------------
 MOVE_FIXED = True
