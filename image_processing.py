@@ -131,8 +131,10 @@ class ImageProcessing:
 
     def get_Z_Values_From_Depth_Map(self, surface_height, current_height, depth_map):
         depth_map = np.array(depth_map)
+        print(depth_map)
         ground_value = np.min(depth_map)
-        surface_value = np[self.width//2][self.height//2] 
+        print(ground_value)
+        surface_value = depth_map[self.width//2][self.height//2] 
   
         # Calculate slope
         m = (current_height - surface_height) / (ground_value - surface_value)
