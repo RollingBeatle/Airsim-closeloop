@@ -16,6 +16,7 @@ from LiDAR.LLM_subimages import find_roofs
 from drone_movement import DroneMovement
 from MLLM_Agent import GPTAgent
 from image_processing import ImageProcessing
+from prompts import PROMPTS
 
 # CONFIGURATION VARIABLES
 # TODO: integrate configuration into agent
@@ -23,10 +24,11 @@ from image_processing import ImageProcessing
 # -----------------------------------------
 COMBINED_PIPELINE = True
 ALT_PIPELINE = False
-ONLY_CROP_PIPELINE = True
-DEPTH_ONLY_PIPELINE = False
+ONLY_CROP_PIPELINE = False
+DEPTH_ONLY_PIPELINE = True
 LIDAR = False
-LANDING_ZONE_DEPTH_ESTIMATED = False
+LANDING_ZONE_DEPTH_ESTIMATED = True
+DEBUG = False
 # Drone Movement Configurations
 # -----------------------------------------
 MOVE_FIXED = True
@@ -51,9 +53,7 @@ DELETE_LZ = True
 DIRS = ["images", "landing_zones","point_cloud_data"]
 # MLLM configurations
 # -----------------------------------------
-PROMPTS_FILE = 'prompts.json'
-PROMPT_ONE = True
-PROMPT_TWO = False
+PROMPT_NAME = 'prompt1'
 API_FILE = "my-k-api.txt"
 # creates necessary directories
 def create_subdirs():
@@ -94,25 +94,15 @@ def clear_dirs():
 def main_pipeline():
 
     # First load the prompt
-    try:
-        with open(PROMPTS_FILE, 'r') as f:
-                # Parsing the JSON file into a Python dictionary
-                prompts = json.load(f)
-    except FileNotFoundError:
-        print("prompt file not found")
-        return
-    if PROMPT_TWO:
-            prompt = prompts["grid_prompt"]
-        
-    else:
-            prompt = prompts["basic_prompt"]
+    prompt = PROMPTS[PROMPT_NAME]
+
     # create necessary classes
-    MLLM_Agent = GPTAgent(prompt, API_FILE)
-    processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=False)
+    MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
+    processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
     drone = DroneMovement()
 
     # set testing vars
-    test = False
+    test = True
     iterations = 10 if test else 1
 
     # clear and create data
@@ -188,8 +178,8 @@ def main_pipeline():
                 # do the IPM to get the coordinates
                 pose = drone.client.getMultirotorState().kinematics_estimated.position
                 surface_height = drone.get_rangefinder()
-                z_map = processor.get_Z_Values_From_Depth_Map(px, py, curr_height, surface_height, depth_map)
-                landing_zone_height = z_map(depth_map[py, px])
+                z_map = processor.get_Z_Values_From_Depth_Map(abs(pose.z_val), surface_height, depth_map)
+                landing_zone_height = z_map(np.array(depth_map)[px, py])
                 if LANDING_ZONE_DEPTH_ESTIMATED:
                     tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
                 else: 
@@ -201,7 +191,7 @@ def main_pipeline():
                     else:
                         drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
                            
-                elif ALT_PIPELINE and curr_height >= 20:
+                elif ALT_PIPELINE and curr_height >= 10:
 
                     drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
                     # crop for z displacement
@@ -215,11 +205,13 @@ def main_pipeline():
                     curr_height = drone.move_drone(tx,ty,tz)
                 # saving test results
                 if test:
-                    cv2.imwrite(f"tests/mono_combined{request_counter}_it_{i}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
-                    select_pil_image.save(f"tests/selected_combined{request_counter}_it_{i}.jpg")
-                    start_data_rec("combined",i,request_counter,ans)
+                    cv2.imwrite(f"tests/mono_depth{request_counter}_it_{i}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+                    select_pil_image.save(f"tests/selected_depth{request_counter}_it_{i}.jpg")
+                    start_data_rec("depth",i,request_counter,ans)
                 request_counter+=1
                 # clearing data    
+                if DEBUG:
+                    input("To continue and delete images, press enter")
                 clear_dirs()
                 create_subdirs()
 
