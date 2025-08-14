@@ -23,10 +23,11 @@ import rich
 
 class MLLMAgent(ABC):
 
-    def __init__(self, prompt, api_file):
+    def __init__(self, prompt, api_file, debug=False):
         # prompt, api key
         self.prompt = prompt
         self.api_file = api_file
+        self.debug = debug
         super().__init__()
 
     @abstractmethod
@@ -68,8 +69,12 @@ class GPTAgent(MLLMAgent):
         if len(detections) > 5:
             sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
             detections = sorted_images_by_area[:4]
-        
-        
+            if self.debug:
+                for det in range(len(detections)):
+                    print("The index is ", det)
+                    detections[det].show()
+                    input("Press enter to continue")
+                
         resp = self.completion_retry(
         content=[
                     {"type": "image_url", "image_url": {"url": self.format_image(det)}}
