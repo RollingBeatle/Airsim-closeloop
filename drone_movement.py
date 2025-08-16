@@ -23,11 +23,11 @@ class DroneMovement:
         self.duration = 0.5 
         self.debug = debug
     
-    def position_drone(self, fixed=True, position=(0,0,0)):
+    def position_drone(self, fixed=True, position=(0,0,0), ori=None):
     # Position the drone randomly in demo
         if fixed:
             x,y,z = self.initial_pos
-            self.client.moveToPositionAsync(x,y,z,3)
+            self.client.moveToPositionAsync(x,y,z,3).join()
         
         else:
             z0 = -np.random.uniform(40, 50)
@@ -36,6 +36,10 @@ class DroneMovement:
             x,y,z = position
             
             self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
+            if ori:
+                pos = self.client.getMultirotorState().kinematics_estimated.position
+                pose = airsim.Pose(pos, ori)
+                self.client.simSetVehiclePose(pose,True)
         
 
     def move_drone(self, tx, ty, tz):
@@ -101,7 +105,8 @@ class DroneMovement:
                 elif k == 'n':
                     self.client.moveByAngleThrottleAsync(0,0,self.speed,self.speed,self.duration).join()
                 elif k == 'k':
-                    print(self.client.getMultirotorState().kinematics_estimated.position)
+                    print("Estimated position",self.client.getMultirotorState().kinematics_estimated.position)
+                    print("Estimated angle", self.client.getMultirotorState().kinematics_estimated.orientation)
 
     def on_press(self, key):
         keys = ['w', 's', 'a', 'd', 'q', 'e','k','m', 'n']
