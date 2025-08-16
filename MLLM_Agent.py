@@ -64,11 +64,11 @@ class GPTAgent(MLLMAgent):
     def mllm_call(self,detections):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
-                   
+        print("debug is active", self.debug)           
         # we want to send at most 5 areas to the LLM
         if len(detections) > 5:
             sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
-            detections = sorted_images_by_area[:4]
+            detections = sorted_images_by_area[:5]
             if self.debug:
                 for det in range(len(detections)):
                     print("The index is ", det)
