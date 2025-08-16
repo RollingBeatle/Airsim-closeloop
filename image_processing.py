@@ -96,9 +96,10 @@ class ImageProcessing:
         # segment flat surfaces
         for p in props:
             if p.area > 700:  # filter out small noise
+                # min_y min_x max_y max_x
                 minr, minc, maxr, maxc = p.bbox
                 cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
-                if not size == maxc*maxr:
+                if not 0.8*size < maxc*maxr:
                     areas.append((minr, minc, maxr, maxc))       
         # Save annotated image
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
@@ -108,14 +109,19 @@ class ImageProcessing:
     
     def match_areas(self, areas, select_pil_image):
         for area in areas:
-            print(area)
-            area_size = (area[3]-area[1])*(area[2]-area[0])
-            img_size = select_pil_image.size[0]*select_pil_image.size[1] 
+            print("The area is", area)
+            minr, minc, maxr, maxc = area
+
+            area_size = (maxr - minr) * (maxc - minc)
+            img_size = select_pil_image.size[0] * select_pil_image.size[1]
+
             if area_size == img_size:
-                px = ((area[3] + area[1])//2) 
-                py = ((area[2] + area[0])//2) 
-                print(px,py)
-                break
+                    print('ymin', minr, 'ymax', maxr)
+                    print('xmin', minc, 'xmax', maxc)
+                    px = (minc + maxc) // 2
+                    py = (minr + maxr) // 2
+                    print('center pixel', px, py)
+                    break
         return px, py
     
     def inverse_perspective_mapping(self, pose, px, py, surface_height):
@@ -131,10 +137,9 @@ class ImageProcessing:
 
     def get_Z_Values_From_Depth_Map(self, surface_height, current_height, depth_map):
         depth_map = np.array(depth_map)
-        print(depth_map)
+        print(depth_map.shape)
         ground_value = np.min(depth_map)
-        print(ground_value)
-        surface_value = depth_map[self.width//2][self.height//2] 
+        surface_value = depth_map[self.height//2][self.width//2] 
   
         # Calculate slope
         m = (current_height - surface_height) / (ground_value - surface_value)
