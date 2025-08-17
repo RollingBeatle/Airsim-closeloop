@@ -10,13 +10,14 @@ import time
 import pandas as pd
 import os
 import json
+import math
 
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
 from drone_movement import DroneMovement
 from MLLM_Agent import GPTAgent
 from image_processing import ImageProcessing
-from prompts import PROMPTS
+from prompts import PROMPTS, ENVELOPE, ResponseFormatDecision
 
 # CONFIGURATION VARIABLES
 # TODO: integrate configuration into agent
@@ -37,7 +38,7 @@ FIXED = True
 MAX_HEIGHT = 155
 # x, y, z
 POSITIONS = [
-    (-151.54669189453125, -43.83946990966797, -90.5884780883789),
+    (2498.781377, 606.094299, 2000),
     ( 6.851377487182617, -191.2527313232422, -105.62255096435547)
 ]
 # Drone Camera Settings
@@ -49,8 +50,8 @@ CAM_NAME      = "frontcamera"
 EXAMPLE_POS   = (0,-35,-100)
 # Directories Configuration
 # -----------------------------------------
-DELETE_LZ = True
-DIRS = ["images", "landing_zones","point_cloud_data"]
+DELETE_LZ = False
+DIRS = ["images", "landing_zones","point_cloud_data", "tests"]
 # MLLM configurations
 # -----------------------------------------
 PROMPT_NAME = 'prompt1'
@@ -83,27 +84,40 @@ def start_data_rec(dirs, it, rounds, just):
     else:
         df.to_csv(dirs, index=False)
 # cleans workspace
-def clear_dirs():
-    """Clear existing data"""
+def clear_dirs(preserve_images=True):
+    """Clear existing data, optionally preserving images directory"""
     curr_dir = os.getcwd()
     for dir in DIRS:
+        if preserve_images and dir == "images":
+            continue  # Skip clearing images directory
         del_dir = curr_dir+f'/{dir}'
-        shutil.rmtree(del_dir)
+        if os.path.exists(del_dir):
+            shutil.rmtree(del_dir)
    
 
 def main_pipeline():
 
     # First load the prompt
-    prompt = PROMPTS[PROMPT_NAME]
+    prompt = ENVELOPE
 
     # create necessary classes
     MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
     processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
     drone = DroneMovement()
+    print("Capturing initial image...")
+    init_pic = drone.client.simGetImages([
+        airsim.ImageRequest(CAM_NAME, airsim.ImageType.Scene, False, False)
+    ])[0]
+    init_img = np.frombuffer(init_pic.image_data_uint8, np.uint8).reshape(
+        init_pic.height, init_pic.width, 3
+    )
+    print("inital coordinates", drone.client.getMultirotorState().kinematics_estimated.position)
+    init_img = cv2.cvtColor(init_img, cv2.COLOR_RGB2BGR)
+    cv2.imwrite("images/first.jpg", init_img)
 
     # set testing vars
     test = True
-    iterations = 10 if test else 1
+    iterations = 3 if test else 1
 
     # clear and create data
     if DELETE_LZ: clear_dirs()
@@ -113,7 +127,8 @@ def main_pipeline():
     for i in range(0,iterations):    
         # Position the drone
         if MOVE_FIXED:
-            drone.position_drone(fixed=False,position=POSITIONS[1])
+            print("Moving to fixed position")
+            drone.position_drone(fixed=False,position=POSITIONS[0])
         elif MANUAL:
             drone.manual_control()
 
@@ -140,8 +155,8 @@ def main_pipeline():
                 img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
                 pillow_img = Image.fromarray(img)
                 np_arr = np.array(pillow_img)
-                # save image
-                cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+                # save image with iteration info
+                cv2.imwrite(f"images/mono_iter{i}_req{request_counter}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
                 # surface crop
                 bounding_boxes = None
                 depth_map = None
@@ -149,14 +164,24 @@ def main_pipeline():
                     # depth map image and segmentation
                     depth_map = processor.depth_analysis_depth_anything(pillow_img)
                     img2 = np.array(depth_map)
+                    
                     # get boxes of surfaces
                     areas = processor.segment_surfaces(img2, np_arr)
+                    
                     # crop
-                    img_copy = np_arr.copy()
-                    processor.crop_surfaces(areas, img_copy)           
-                    # read saved detections
-                    detections = [Image.fromarray(cv2.imread(os.path.join("./"+DIRS[1], f)))
-                                for f in os.listdir("./"+DIRS[1])]
+                   
+                   
+                   
+                   ##Skipping cropping for now
+                    # img_copy = np_arr.copy()
+                    # processor.crop_surfaces(areas, img_copy)           
+                    # # read saved detections
+                    # detections = [Image.fromarray(cv2.imread(os.path.join("./"+DIRS[1], f)))
+                    #             for f in os.listdir("./"+DIRS[1])]
+
+                    #This now contains the candidates and correlating json to pass into LLM at once
+                    detections = (areas)
+
                     # act if the distance to the ground is a threshold or there are no detections
                     if not detections or curr_height < 20 :
                         detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
@@ -164,8 +189,26 @@ def main_pipeline():
                 elif ONLY_CROP_PIPELINE:
                     detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
                 
-                # ask LLM for surface
-                select_pil_image, index, ans = MLLM_Agent.mllm_call(detections)   
+                # ask LLM for surface - try to find the latest annotated image
+                annotated_image_path = f"images/flat_surfaces_annotated.jpg"
+                if not os.path.exists(annotated_image_path):
+                    # Fallback to any annotated image in the directory
+                    import glob
+                    annotated_files = glob.glob("images/flat_surfaces_annotated*.jpg")
+                    if annotated_files:
+                        annotated_image_path = annotated_files[-1]  # Use the latest
+                annotated_image = cv2.imread(annotated_image_path)
+                envelope = dict(ENVELOPE)
+                envelope["input"] = dict(ENVELOPE["input"])
+                envelope["input"]["candidates"]["count"] = len(detections)
+                select_candidate, index, ans = MLLM_Agent.mllm_call(envelope, detections, annotated_image)
+                
+                # Create PIL image for saving in tests
+                if annotated_image is not None:
+                    select_pil_image = Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
+                else:
+                    # Fallback: use the mono depth image
+                    select_pil_image = Image.fromarray(cv2.cvtColor(np_arr, cv2.COLOR_BGR2RGB))
                 # get the pixels for the selected image
                 if bounding_boxes:
                     print("the index of the image",index)
@@ -174,16 +217,66 @@ def main_pipeline():
                     print("pixels",px,py)
 
                 elif DEPTH_ONLY_PIPELINE:
-                    px, py = processor.match_areas(areas,select_pil_image)
+                    if depth_map is None:
+                        print("Error: depth_map is None!")
+                        continue
+                    
+                    depth_array = np.array(depth_map)
+                    if select_candidate is None:
+                        print("No candidate selected, using center of image")
+                        px, py = depth_array.shape[1] // 2, depth_array.shape[0] // 2
+                    else:
+                        # Note: center_xy gives (x, y) but depth_map is indexed as [y, x] or [row, col]
+                        px, py = select_candidate.center_xy
+                    print(f"Selected center coordinates: px={px}, py={py}")
+                    print(f"Depth map shape: {depth_array.shape}")
+                    
+                    # Ensure coordinates are within bounds (swap px,py for numpy indexing)
+                    if py >= depth_array.shape[0] or px >= depth_array.shape[1]:
+                        print(f"Coordinates out of bounds! Using center of image instead.")
+                        py = depth_array.shape[0] // 2
+                        px = depth_array.shape[1] // 2
+                    
                 # do the IPM to get the coordinates
                 pose = drone.client.getMultirotorState().kinematics_estimated.position
+                
                 surface_height = drone.get_rangefinder()
+                print("Surface height", surface_height)
+                print("Drone pose", pose)
                 z_map = processor.get_Z_Values_From_Depth_Map(abs(pose.z_val), surface_height, depth_map)
-                landing_zone_height = z_map(np.array(depth_map)[px, py])
+                print("Z map", z_map)
+               
+                # Get depth value at the selected pixel (note: use py, px for row, col indexing)
+                depth_value = depth_array[py, px]
+                print(f"Depth value at ({py}, {px}): {depth_value}")
+                landing_zone_height = z_map(depth_value)
+                print(f"Calculated landing zone height: {landing_zone_height}")
+                
+                # Use camera altitude for IPM, not surface height
+                camera_altitude = abs(pose.z_val)
+                print(f"Camera altitude for IPM: {camera_altitude:.2f}m")
+                
                 if LANDING_ZONE_DEPTH_ESTIMATED:
-                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, camera_altitude)
+                    print(f"IPM with camera altitude: target=({tx:.2f}, {ty:.2f}, {tz:.2f})")
+                    # Keep original z target from depth estimation
+                    tz = pose.z_val  # Maintain current Z, move only in X,Y
                 else: 
-                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, camera_altitude)
+                    print(f"IPM with camera altitude: target=({tx:.2f}, {ty:.2f}, {tz:.2f})")
+                
+                # Debug: Check coordinate transformations
+                print(f"Pixel coordinates (x,y): ({px}, {py})")
+                print(f"Image center: ({IMAGE_WIDTH//2}, {IMAGE_HEIGHT//2})")
+                print(f"Offset from center: dx={px - IMAGE_WIDTH//2}, dy={py - IMAGE_HEIGHT//2}")
+                print(f"Selected candidate bbox: {select_candidate.bbox_xyxy}")
+                print(f"Final target position: ({tx:.2f}, {ty:.2f}, {tz:.2f})")
+                
+                # Calculate expected displacement
+                world_w = 2 * camera_altitude * math.tan(math.radians(FOV_DEGREES/2))
+                mpp_x = world_w / IMAGE_WIDTH
+                expected_displacement = abs(px - IMAGE_WIDTH//2) * mpp_x
+                print(f"Expected displacement: {expected_displacement:.2f}m (actual: {math.sqrt(tx**2 + ty**2):.2f}m)")
                 # start descent or move to the x,y in crop pipeline
                 if ONLY_CROP_PIPELINE:
                     if index == 4:
@@ -212,9 +305,9 @@ def main_pipeline():
                 # clearing data    
                 if DEBUG:
                     input("To continue and delete images, press enter")
-                clear_dirs()
-                create_subdirs()
-
+                
+            clear_dirs(preserve_images=True)  # Preserve images directory
+            create_subdirs()
             drone.land_drone()
 
 

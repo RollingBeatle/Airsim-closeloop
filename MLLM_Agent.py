@@ -46,9 +46,24 @@ class MLLMAgent(ABC):
     def log_errors(self):
         pass
 
-class ResponseFormatBasic(BaseModel):
-    Answer: List[str]
-    Indices: List[str]
+# Define a simplified response format compatible with OpenAI structured outputs
+ResponseFormatDecision = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "landing_decision",
+        "strict": False,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "reject": {"type": "boolean", "description": "True if no candidate is safe."},
+                "index": {"type": "integer", "minimum": 0, "description": "Chosen candidate index if reject is false."},
+                "reason": {"type": "string", "description": "Reason for choice if reject is false."},
+                "reject_reason": {"type": "string", "description": "Reason for rejection if reject is true."}
+            },
+            "required": ["reject"]
+        }
+    }
+}
 
 
 class GPTAgent(MLLMAgent):
@@ -61,49 +76,65 @@ class GPTAgent(MLLMAgent):
         self.client = clientGPT
         return clientGPT
     
-    def mllm_call(self,detections):
-        # Get GPT Client
+    def mllm_call(self, prompt, candidates, annotated_image):
+        """
+        prompt: Dictionary or string containing the prompt/envelope
+        candidates: List[Candidate] objects
+        annotated_image: PIL.Image or np.ndarray (the annotated image with indices)
+        """
         clientGPT = self.get_mllm_agent()
-                   
-        # we want to send at most 5 areas to the LLM
-        if len(detections) > 5:
-            sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
-            detections = sorted_images_by_area[:4]
-            if self.debug:
-                for det in range(len(detections)):
-                    print("The index is ", det)
-                    detections[det].show()
-                    input("Press enter to continue")
-                
+        # Convert annotated image to PIL if needed
+        if isinstance(annotated_image, np.ndarray):
+            annotated_pil = Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
+        else:
+            annotated_pil = annotated_image
+
+        # Convert prompt to string if it's a dictionary
+        if isinstance(prompt, dict):
+            prompt_text = json.dumps(prompt, indent=2)
+        else:
+            prompt_text = str(prompt)
+
         resp = self.completion_retry(
-        content=[
-                    {"type": "image_url", "image_url": {"url": self.format_image(det)}}
-                    for det in detections  
-                ] + [{"type": "text", "text": self.prompt}],
-        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
-        response_format=ResponseFormatBasic
+            content=[
+                {"type": "image_url", "image_url": {"url": self.format_image(annotated_pil)}},
+                {"type": "text", "text": prompt_text}
+            ],
+            model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+            response_format=ResponseFormatDecision
         )
 
         result = json.loads(resp.choices[0].message.content)
-        rich.print(result)  
-        # detections[int(result['Indices'][0])].show()
+        rich.print(result)
+        
+        # Handle rejection case
+        if result.get("reject", False):
+            return None, -1, result.get("reject_reason", "No safe landing zone found")
+        
+        # Handle success case - map index to candidate
         try:
-            return detections[int(result['Indices'][0])], int(result['Indices'][0]), result['Answer']
-        # return result['Coordinates'][0]
-        except:
-            return None, 0, result['Answer']
+            idx = int(result["index"])
+            if idx < len(candidates):
+                print("returning:",candidates[idx], idx, result.get("reason", ""))
+                return candidates[idx], idx, result.get("reason", "")
+            else:
+                return None, -1, f"Invalid index {idx}, only {len(candidates)} candidates available"
+        except (KeyError, ValueError, TypeError) as e:
+            return None, -1, f"Error parsing response: {str(e)}"
     
 
-    def log_errors(self, retry_state):
+    @staticmethod
+    def log_errors(retry_state):
         print(
-        "Request failed. Current retry attempts:{}. Sleep for {:.2f}. Exception: {}".format(
-            retry_state.attempt_number, retry_state.idle_for, repr(retry_state.outcome.exception())
+            "Request failed. Current retry attempts:{}. Sleep for {:.2f}. Exception: {}".format(
+                retry_state.attempt_number, retry_state.idle_for, repr(retry_state.outcome.exception())
+            )
         )
-    )
     
     @retry(
-    wait=wait_random_exponential(min=1, max=60),
-    before_sleep=log_errors)
+        wait=wait_random_exponential(min=1, max=60),
+        before_sleep=lambda retry_state: GPTAgent.log_errors(retry_state)
+    )
     def completion_retry(self, content, model, clientGPT, response_format=NOT_GIVEN):
         response = clientGPT.beta.chat.completions.parse(
             model=model,
