@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+import json
 import numpy as np
 import cv2
 import time
@@ -6,6 +8,15 @@ import torch
 from PIL import Image
 from transformers import pipeline
 from skimage import measure
+    
+
+@dataclass
+class Candidate:
+    index: int
+    bbox_xyxy: tuple  # (x1,y1,x2,y2)
+    center_xy: tuple  # safe center (distance-transform peak)
+    area_px: int
+
 
 class ImageProcessing:
 
@@ -94,19 +105,35 @@ class ImageProcessing:
         width_src, height_src= img.shape
         size = width_src*height_src
         # segment flat surfaces
+        idx = 0
         for p in props:
             if p.area > 700:  # filter out small noise
                 minr, minc, maxr, maxc = p.bbox
+                center_x = minc + (maxc - minc) // 2
+                center_y = minr + (maxr - minr) // 2
                 cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
-                if not size == maxc*maxr:
-                    areas.append((minr, minc, maxr, maxc))       
+                cv2.putText(annotated, str(idx), (center_x, center_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                
+                areas.append(Candidate(
+                    index=idx,
+                    bbox_xyxy=(minc, minr, maxc, maxr),
+                    center_xy=(center_x, center_y),
+                    area_px=p.area,
+                ))
+                idx += 1
+                # if not size == maxc*maxr:
+                #     areas.append((minr, minc, maxr, maxc))
+            # 
         # Save annotated image
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
         if self.debug:
             input("Press to continue")
+        with open("images/flat_surfaces.json", "w") as f:
+            json.dump([c.__dict__ for c in areas], f)
         return areas
-    
+
     def match_areas(self, areas, select_pil_image):
+        print("Matching areas with the selected image...")
         for area in areas:
             print(area)
             area_size = (area[3]-area[1])*(area[2]-area[0])
@@ -134,7 +161,9 @@ class ImageProcessing:
         print(depth_map)
         ground_value = np.min(depth_map)
         print(ground_value)
-        surface_value = depth_map[self.width//2][self.height//2] 
+        # Fix: use proper row,col indexing for numpy arrays
+        surface_value = depth_map[self.height//2, self.width//2] 
+        print(f"Surface value at center ({self.height//2}, {self.width//2}): {surface_value}") 
   
         # Calculate slope
         m = (current_height - surface_height) / (ground_value - surface_value)

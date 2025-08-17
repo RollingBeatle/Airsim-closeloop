@@ -11,7 +11,7 @@ from pynput import keyboard
 
 class DroneMovement:
     
-    def __init__(self, initial_pose = (0,-35,-100), debug=True):
+    def __init__(self, initial_pose = (0,0,0), debug=True):
         self.client = airsim.MultirotorClient()
         self.initial_pos = initial_pose
         self.client.confirmConnection()
@@ -22,6 +22,8 @@ class DroneMovement:
         self.speed = 2  # m/s
         self.duration = 0.5 
         self.debug = debug
+
+        
     
     def position_drone(self, fixed=True, position=(0,0,0)):
     # Position the drone randomly in demo
@@ -31,11 +33,15 @@ class DroneMovement:
         
         else:
             z0 = -np.random.uniform(40, 50)
-            pose = self.client.getMultirotorState().kinematics_estimated.position
-            self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
-            x,y,z = position
             
-            self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
+            
+            pose = self.client.getMultirotorState().kinematics_estimated.position
+            x = pose.x_val
+            y = pose.y_val
+            z = pose.z_val + z0
+            self.client.moveToZAsync(z0, 2).join(); time.sleep(2)
+            
+ #           self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
         
 
     def move_drone(self, tx, ty, tz):
