@@ -42,10 +42,10 @@ POSITIONS = [
 ]
 # Drone Camera Settings
 # -----------------------------------------
-IMAGE_WIDTH   = 960
-IMAGE_HEIGHT  = 540
+IMAGE_WIDTH   = 1080
+IMAGE_HEIGHT  = 1920
 FOV_DEGREES   = 90
-CAM_NAME      = "frontcamera"
+CAM_NAME      = "bottom_center"
 EXAMPLE_POS   = (0,-35,-100)
 # Directories Configuration
 # -----------------------------------------
@@ -57,14 +57,13 @@ PROMPT_NAME = 'prompt1'
 API_FILE = "my-k-api.txt"
 # creates necessary directories
 def create_subdirs():
-    # add more dirs if needed
+    """Create subdirectories if they do not exist."""
     curr_dir = os.getcwd()
-    # create the dirs if not created yet
-    for dir in DIRS:
-        new_dir = curr_dir+f'/{dir}'
+    for dir_name in DIRS:
+        new_dir = os.path.join(curr_dir, dir_name)
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
-            print(f"Created {dir} folder")
+            print(f"Created folder: {dir_name}")
 
 # records experiment data
 def start_data_rec(dirs, it, rounds, just):
@@ -82,13 +81,19 @@ def start_data_rec(dirs, it, rounds, just):
         df.to_csv(dirs, mode="a", header=False, index=False)
     else:
         df.to_csv(dirs, index=False)
+
 # cleans workspace
 def clear_dirs():
     """Clear existing data"""
     curr_dir = os.getcwd()
-    for dir in DIRS:
-        del_dir = curr_dir+f'/{dir}'
-        shutil.rmtree(del_dir)
+    for dir_name in DIRS:
+        del_dir = os.path.join(curr_dir, dir_name)
+        if os.path.exists(del_dir):
+            shutil.rmtree(del_dir)
+            print(f"Deleted: {del_dir}")
+        else:
+            print(f"Folder does not exist: {del_dir}")
+
    
 
 def main_pipeline():
@@ -113,7 +118,9 @@ def main_pipeline():
     for i in range(0,iterations):    
         # Position the drone
         if MOVE_FIXED:
-            drone.position_drone(fixed=False,position=POSITIONS[1])
+            # drone.position_drone(fixed=False,position=POSITIONS[1])
+            drone.take_off()
+            time.sleep(3) # so the drone has time to stabalize
         elif MANUAL:
             drone.manual_control()
 
@@ -121,7 +128,7 @@ def main_pipeline():
             # LiDAR pipeline
             pc_name, img_name = "point_cloud_1", "img_1"
             get_image_lidar(pc_name,img_name)
-            cv2_image = cv2.imread(f'images/{img_name}.png')
+            cv2_image = cv2.imread(os.path.join('images', f'{img_name}.png'))
             find_roofs(f"{pc_name}.pcd",f"{img_name}.png")
             image = Image.fromarray(cv2_image)
             result, justification = MLLM_Agent.mllm_call(image)
@@ -134,20 +141,35 @@ def main_pipeline():
             curr_height = drone.get_rangefinder()
             print("This is the height ", curr_height)
             request_counter = 0
-            while abs(curr_height) > 15:
+            while abs(curr_height) > 10:
                 # getting image from drone TODO: optimize image type
                 resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+
                 img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
                 pillow_img = Image.fromarray(img)
                 np_arr = np.array(pillow_img)
                 # save image
-                cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+                cv2.imwrite(os.path.join('images', 'mono.jpg'), cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
                 # surface crop
                 bounding_boxes = None
                 depth_map = None
+                depth_raw = None
                 if DEPTH_ONLY_PIPELINE or ALT_PIPELINE:
                     # depth map image and segmentation
-                    depth_map = processor.depth_analysis_depth_anything(pillow_img)
+                    pose = drone.client.getMultirotorState().kinematics_estimated.position
+                    depth_raw, depth_map = processor.depth_analysis_depth_anything(image = pillow_img, max_depth=148)
                     img2 = np.array(depth_map)
                     # get boxes of surfaces
                     areas = processor.segment_surfaces(img2, np_arr)
@@ -159,10 +181,10 @@ def main_pipeline():
                                 for f in os.listdir("./"+DIRS[1])]
                     # act if the distance to the ground is a threshold or there are no detections
                     if not detections or curr_height < 20 :
-                        detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
+                        detections, bounding_boxes = processor.crop_five_cuadrants(os.path.join('images', 'mono.jpg'))
                 # only crop does not use depth map
                 elif ONLY_CROP_PIPELINE:
-                    detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
+                    detections, bounding_boxes = processor.crop_five_cuadrants(os.path.join('images', 'mono.jpg'))
                 
                 # ask LLM for surface
                 select_pil_image, index, ans = MLLM_Agent.mllm_call(detections)   
@@ -176,14 +198,16 @@ def main_pipeline():
                 elif DEPTH_ONLY_PIPELINE:
                     px, py = processor.match_areas(areas,select_pil_image)
                 # do the IPM to get the coordinates
+                px,py = (520,520)
                 pose = drone.client.getMultirotorState().kinematics_estimated.position
+                orientation = drone.client.getMultirotorState().kinematics_estimated.orientation
                 surface_height = drone.get_rangefinder()
-                z_map = processor.get_Z_Values_From_Depth_Map(abs(pose.z_val), surface_height, depth_map)
-                landing_zone_height = z_map(np.array(depth_map)[px, py])
+                z_map, s = processor.get_Z_Values_From_Depth_Map_2(surface_height, depth_raw, pose.z_val)
+                landing_zone_height = z_map(np.array(depth_raw)[px, py])
                 if LANDING_ZONE_DEPTH_ESTIMATED:
-                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, landing_zone_height, orientation)
                 else: 
-                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
+                    tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height, orientation)
                 # start descent or move to the x,y in crop pipeline
                 if ONLY_CROP_PIPELINE:
                     if index == 4:
@@ -195,7 +219,7 @@ def main_pipeline():
 
                     drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
                     # crop for z displacement
-                    detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
+                    detections, bounding_boxes = processor.crop_five_cuadrants(os.path.join('images', 'mono.jpg'))
                     select_pil_image, index, ans = MLLM_Agent.mllm_call(detections) 
                     # checking if the selected space is the center
                     if index == 4:
@@ -205,8 +229,8 @@ def main_pipeline():
                     curr_height = drone.move_drone(tx,ty,tz)
                 # saving test results
                 if test:
-                    cv2.imwrite(f"tests/mono_depth{request_counter}_it_{i}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
-                    select_pil_image.save(f"tests/selected_depth{request_counter}_it_{i}.jpg")
+                    cv2.imwrite(os.path.join('tests', f"mono_depth{request_counter}_it_{i}.jpg"), cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+                    select_pil_image.save(os.path.join('tests', f"mono_depth{request_counter}_it_{i}.jpg"))
                     start_data_rec("depth",i,request_counter,ans)
                 request_counter+=1
                 # clearing data    

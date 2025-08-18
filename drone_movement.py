@@ -43,6 +43,9 @@ class DroneMovement:
         self.client.moveToPositionAsync(tx,ty,tz,3).join(); time.sleep(2)
         
         return self.move_to_z(tz)
+    def take_off(self):
+        self.client.takeoffAsync().join()
+        self.client.moveToZAsync(-50, 2).join()
     
     def move_to_z(self, tz):
 
@@ -56,7 +59,7 @@ class DroneMovement:
 
     def get_rangefinder(self):
 
-        distance_sensor_data = self.client.getDistanceSensorData("Distance","airsimvehicle")
+        distance_sensor_data = self.client.getDistanceSensorData("Distance","Drone1")
         distance = distance_sensor_data.distance
         print(f"Distance to ground: {distance:.2f}")
         return distance
