@@ -35,11 +35,12 @@ class DroneMovement:
             self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
             x,y,z = position
             
-            self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(2)
+            self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(5)
             if ori:
                 pos = self.client.getMultirotorState().kinematics_estimated.position
                 pose = airsim.Pose(pos, ori)
                 self.client.simSetVehiclePose(pose,True)
+                time.sleep(2)
         
 
     def move_drone(self, tx, ty, tz):
