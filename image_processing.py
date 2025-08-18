@@ -17,13 +17,16 @@ class ImageProcessing:
         self.debug = debug
     
         
-    def crop_surfaces(self, area, img):
+    def crop_surfaces(self, area, img, alt_name=None):
         out = img.copy()
         i = 0
         for a in area:
             crop = out[a[0]:a[2], a[1]:a[3]]
-            fname = f'landing_zones/landing_zone{i}.jpg'
-            cv2.imwrite(fname, crop)
+            if alt_name: 
+                fname = f'landing_zones/test_landing_zone{alt_name}.jpg'
+            else:
+                fname = f'landing_zones/landing_zone{i}.jpg'
+            cv2.imwrite(fname, cv2.cvtColor(crop,cv2.COLOR_RGB2BGR))
             i+=1
     
     def crop_five_cuadrants(self, image):
@@ -99,10 +102,12 @@ class ImageProcessing:
                 # min_y min_x max_y max_x
                 minr, minc, maxr, maxc = p.bbox
                 cv2.rectangle(annotated, (minc, minr), (maxc, maxr), (0, 255, 0), 2)
-                if not 0.8*size < maxc*maxr:
+                if not 0.75*size < maxc*maxr:
+                    print("percentage of area", (maxc*maxr)/size )
                     areas.append((minr, minc, maxr, maxc))       
         # Save annotated image
-        cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
+        
+        cv2.imwrite("images/flat_surfaces_annotated.jpg", cv2.cvtColor(annotated,cv2.COLOR_RGB2BGR))
         if self.debug:
             input("Press to continue")
         return areas
