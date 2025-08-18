@@ -69,11 +69,11 @@ class GPTAgent(MLLMAgent):
         if len(detections) > 5:
             sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
             detections = sorted_images_by_area[:5]
-            if self.debug:
-                for det in range(len(detections)):
-                    print("The index is ", det)
-                    detections[det].show()
-                    input("Press enter to continue")
+        if self.debug:
+            for det in range(len(detections)):
+                print("The index is ", det)
+                detections[det].show()
+                input("Press enter to continue")
                 
         resp = self.completion_retry(
         content=[
