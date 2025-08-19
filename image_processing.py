@@ -163,6 +163,87 @@ class ImageProcessing:
             input("Press to continue")
         return areas
     
+    def find_rotated_landing_zones(depth_map, window_size=10, flat_tol=0.1, min_area=100, merge_overlap_thresh=0.5):
+        """
+        Detect flat landing zones as rotated rectangles from a metric depth map.
+
+        Parameters
+        ----------
+        depth_map : np.ndarray (H x W)
+            Depth map in meters.
+        window_size : int
+            Size of the patch to initially check for flatness.
+        flat_tol : float
+            Maximum variation in depth to consider a patch flat.
+        min_area : int
+            Minimum area (in pixels) of a landing zone.
+        merge_overlap_thresh : float
+            Minimum fraction of edge overlap to allow merging adjacent rectangles.
+
+        Returns
+        -------
+        landing_zones : list of cv2.RotatedRect
+            Each element is ((cx, cy), (w, h), angle) in OpenCV RotatedRect format.
+        """
+        H, W = depth_map.shape
+
+        # Step 1: Threshold for flat regions using sliding window
+        flat_mask = np.zeros_like(depth_map, dtype=np.uint8)
+        for i in range(0, H - window_size + 1, window_size):
+            for j in range(0, W - window_size + 1, window_size):
+                patch = depth_map[i:i+window_size, j:j+window_size]
+                if np.ptp(patch) <= flat_tol:  # max-min < tolerance
+                    flat_mask[i:i+window_size, j:j+window_size] = 255
+
+        # Step 2: Find contours of flat regions
+        contours, _ = cv2.findContours(flat_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Step 3: Fit rotated rectangles and filter by area
+        landing_zones = []
+        for cnt in contours:
+            if cv2.contourArea(cnt) < min_area:
+                continue
+            rect = cv2.minAreaRect(cnt)  # ((cx, cy), (w, h), angle)
+            landing_zones.append(rect)
+
+        # Step 4: Merge rectangles that share enough of an edge
+        merged = True
+        while merged:
+            merged = False
+            new_zones = []
+            used = [False] * len(landing_zones)
+
+            for i, rect1 in enumerate(landing_zones):
+                if used[i]:
+                    continue
+                r1_pts = cv2.boxPoints(rect1)
+                merged_rect = rect1
+
+                for j, rect2 in enumerate(landing_zones):
+                    if i == j or used[j]:
+                        continue
+                    r2_pts = cv2.boxPoints(rect2)
+
+                    # Check if rectangles share a sufficient edge (intersection over min edge length)
+                    inter_area = cv2.rotatedRectangleIntersection(rect1, rect2)[1]
+                    if inter_area is not None:
+                        inter_area = cv2.contourArea(inter_area)
+                        min_area_rect = min(cv2.contourArea(r1_pts), cv2.contourArea(r2_pts))
+                        if inter_area / min_area_rect >= merge_overlap_thresh:
+                            # Merge by computing bounding rectangle over all points
+                            all_pts = np.vstack((r1_pts, r2_pts))
+                            merged_rect = cv2.minAreaRect(all_pts)
+                            used[j] = True
+                            merged = True
+
+                new_zones.append(merged_rect)
+                used[i] = True
+
+            landing_zones = new_zones
+
+        return landing_zones
+    
+
     def match_areas(self, areas, select_pil_image):
         for area in areas:
             print(area)
