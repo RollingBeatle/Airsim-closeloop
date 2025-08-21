@@ -6,14 +6,11 @@ import os
 import io
 from PIL import Image, ImageEnhance
 
-def get_image_lidar(pc_name, img_name):
+def get_image_lidar(pc_name, img_name, client: airsim.MultirotorClient):
 
-    # Connect to AirSim
-    client = airsim.MultirotorClient()
-    client.confirmConnection()
 
     # Get Lidar data
-    lidar_data = client.getLidarData('Lidar1', 'Copter')
+    lidar_data = client.getLidarData('GPULidar1', 'airsimvehicle')
     print(lidar_data)
 
     # Your flat array (replace with your data)
@@ -56,14 +53,16 @@ def get_image_lidar(pc_name, img_name):
     # Destroy the window if created
     vis.destroy_window()
 
-    response = client.simGetImage("bottom_center", airsim.ImageType.Scene)
+    response = client.simGetImages([airsim.ImageRequest("frontcamera",airsim.ImageType.Scene,False,False)])[0]
 
     # Check if image was retrieved successfully
     if response is None:
         print("Failed to get image from AirSim")
     else:
         # Convert the image bytes into a PIL image
-        image = Image.open(io.BytesIO(response))
+        img = np.frombuffer(response.image_data_uint8, np.uint8).reshape(response.height,response.width,3)
+        image = Image.fromarray(img)
+        
 
         # Convert image to numpy array
         image_array = np.array(image)
@@ -79,10 +78,10 @@ def get_image_lidar(pc_name, img_name):
         image_array_exposure_reduced = np.clip(image_array_exposure_reduced * 255, 0, 255).astype(np.uint8)
 
         # Convert numpy array back to PIL image
-        image_exposure_reduced = Image.fromarray(image_array_exposure_reduced)
-
+        # image_exposure_reduced = Image.fromarray(image_array_exposure_reduced)
+        image_exposure_reduced = Image.fromarray(image_array)
         # Save the modified image
-        image_exposure_reduced.save(f'images/{img_name}.png')
+        image_exposure_reduced.save(f'images/{img_name}.jpg')
 
         print("Image saved with reduced exposure.")
 
