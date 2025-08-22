@@ -50,6 +50,10 @@ class ResponseFormatBasic(BaseModel):
     Answer: List[str]
     Indices: List[str]
 
+class ResponseFormatConfirmation(BaseModel):
+    Answer: List[str]
+    Decision: str
+
 
 class GPTAgent(MLLMAgent):
 
@@ -61,37 +65,57 @@ class GPTAgent(MLLMAgent):
         self.client = clientGPT
         return clientGPT
     
-    def mllm_call(self,detections):
+    def mllm_call(self, detections, boundingb=None, call_type='basic'):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
         print("debug is active", self.debug)           
         # we want to send at most 5 areas to the LLM
-        if len(detections) > 5:
-            sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
-            detections = sorted_images_by_area[:5]
-        if self.debug:
-            for det in range(len(detections)):
-                print("The index is ", det)
-                detections[det].show()
-                input("Press enter to continue")
-                
-        resp = self.completion_retry(
-        content=[
-                    {"type": "image_url", "image_url": {"url": self.format_image(det)}}
-                    for det in detections  
-                ] + [{"type": "text", "text": self.prompt}],
-        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
-        response_format=ResponseFormatBasic
-        )
+        if not call_type == 'basic':
+            print("showing the whole image")   
+            if not boundingb:
+                boundingb = 'There was no bounding box available' 
+            detection = detections[0]
+            if self.debug:
+                detection.show()
+            resp = self.completion_retry(
+            content=[
+                        {"type": "image_url", "image_url": {"url": self.format_image(detection)}}  
+                    ] + [{"type": "text", "text": self.prompt}] +[{"type": "text", "text": boundingb}],
+            model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+            response_format=ResponseFormatConfirmation
+            )
 
-        result = json.loads(resp.choices[0].message.content)
-        rich.print(result)  
-        # detections[int(result['Indices'][0])].show()
-        try:
-            return detections[int(result['Indices'][0])], int(result['Indices'][0]), result['Answer']
-        # return result['Coordinates'][0]
-        except:
-            return None, 0, result['Answer']
+            result = json.loads(resp.choices[0].message.content)
+            rich.print(result) 
+            return result['Decision'], result['Answer'] 
+
+        else:
+            if len(detections) > 5:
+                sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
+                detections = sorted_images_by_area[:5]
+            if self.debug:
+                for det in range(len(detections)):
+                    print("The index is ", det)
+                    detections[det].show()
+                    input("Press enter to continue")
+                    
+            resp = self.completion_retry(
+            content=[
+                        {"type": "image_url", "image_url": {"url": self.format_image(det)}}
+                        for det in detections  
+                    ] + [{"type": "text", "text": self.prompt}],
+            model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+            response_format=ResponseFormatBasic
+            )
+
+            result = json.loads(resp.choices[0].message.content)
+            rich.print(result)  
+            # detections[int(result['Indices'][0])].show()
+            try:
+                return detections[int(result['Indices'][0])], int(result['Indices'][0]), result['Answer']
+            # return result['Coordinates'][0]
+            except:
+                return None, 0, result['Answer']
     
 
     def log_errors(self, retry_state):
