@@ -54,7 +54,7 @@ ENVELOPE = {
   "format": {
     "description": "Return ONLY JSON. No prose, no markdown.",
     "schema": {
-      "oneOf": [      
+      "oneOf": [
         {"type": "object", "required": ["reject","index","reason"],
          "properties": {"reject": {"const": False}, "index": {"type": "integer","minimum": 0},
                         "reason": {"type":"string"},
