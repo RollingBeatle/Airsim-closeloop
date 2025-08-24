@@ -42,8 +42,8 @@ POSITIONS = [
 ]
 # Drone Camera Settings
 # -----------------------------------------
-IMAGE_WIDTH   = 1080
-IMAGE_HEIGHT  = 1920
+IMAGE_WIDTH   = 2160
+IMAGE_HEIGHT  = 2160
 FOV_DEGREES   = 90
 CAM_NAME      = "bottom_center"
 EXAMPLE_POS   = (0,-35,-100)
@@ -177,7 +177,8 @@ def main_pipeline():
                 if DEPTH_ONLY_PIPELINE or ALT_PIPELINE:
                     # depth map image and segmentation
                     pose = drone.client.getMultirotorState().kinematics_estimated.position
-                    depth_raw, depth_map = processor.depth_analysis_depth_anything(image = pillow_img, max_depth=148) # depth_raw is metric depth_map is relative
+                    depth_raw, depth_map = processor.depth_analysis_depth_anything(image = pillow_img, max_depth=pose.z_val) # depth_raw is metric depth_map is relative
+                    # depth_raw, depth_map = processor.depth_analysis_depth_pro(image = pillow_img) 
                     img2 = np.array(depth_map)
                     orientation = drone.client.getMultirotorState().kinematics_estimated.orientation
                     surface_height = drone.get_rangefinder()
@@ -188,9 +189,10 @@ def main_pipeline():
                     # get boxes of surfaces
                     # areas = processor.segment_surfaces(img2, np_arr)
                     areas = processor.find_landing_zones(depth_mapped)
-                    areas = processor.merge_landing_zones(areas)
+                    areas = processor.merge_landing_zones_2(areas)
                     # crop
                     img_copy = np_arr.copy()
+                    print("going to crop")
                     
                     processor.crop_surfaces(areas, img_copy)           
                     # read saved detections

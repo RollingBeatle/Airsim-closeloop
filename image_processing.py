@@ -4,7 +4,7 @@ import time
 import math
 import torch
 from PIL import Image
-from transformers import pipeline, DepthAnythingConfig, DepthAnythingForDepthEstimation, AutoImageProcessor, AutoModelForDepthEstimation
+from transformers import pipeline, DepthAnythingConfig, DepthAnythingForDepthEstimation, AutoImageProcessor, AutoModelForDepthEstimation, DepthProImageProcessorFast, DepthProForDepthEstimation
 from skimage import measure
 import os
 
@@ -83,17 +83,17 @@ class ImageProcessing:
 
         # --- Load processor ---
         image_processor = AutoImageProcessor.from_pretrained(
-            "depth-anything/Depth-Anything-V2-Small-hf"
+            "depth-anything/Depth-Anything-V2-Base-hf"
         )
 
         # --- Load model with custom config (metric + max_depth) ---
         config = DepthAnythingConfig.from_pretrained(
-            "depth-anything/Depth-Anything-V2-Small-hf",
+            "depth-anything/Depth-Anything-V2-Base-hf",
             depth_estimation_type="metric",
             max_depth=max_depth
         )
         model = AutoModelForDepthEstimation.from_pretrained(
-            "depth-anything/Depth-Anything-V2-Small-hf",
+            "depth-anything/Depth-Anything-V2-Base-hf",
             config=config
         ).to(device)
 
@@ -126,6 +126,59 @@ class ImageProcessing:
             depth_vis.show()
 
         return depth_raw, depth_vis
+
+
+    # def depth_analysis_depth_pro(
+    #         self,
+    #     image: Image.Image,
+    #     save_path="images",
+    #     debug=False
+    # ):
+    #     """
+    #     Run Apple's DepthPro for monocular depth estimation.
+    #     Returns:
+    #     - depth_raw: np.ndarray (depth in meters)
+    #     - depth_vis: PIL.Image (grayscale visualization 0–255)
+    #     - field_of_view: torch.Tensor
+    #     - focal_length: torch.Tensor
+    #     """
+    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    #     # --- Load processor and model ---
+    #     image_processor = DepthProImageProcessorFast.from_pretrained("apple/DepthPro-hf")
+    #     model = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf").to(device)
+
+    #     # --- Prepare inputs ---
+    #     inputs = image_processor(images=image, return_tensors="pt")
+
+    #     # --- Run inference ---
+    #     with torch.no_grad():
+    #         outputs = model(**inputs)
+
+    #     # --- Postprocess to original resolution ---
+    #     post_processed = image_processor.post_process_depth_estimation(
+    #         outputs, target_sizes=[(image.height, image.width)],
+    #     )
+
+    #     field_of_view = post_processed[0]["field_of_view"]
+    #     focal_length = post_processed[0]["focal_length"]
+    #     predicted_depth = post_processed[0]["predicted_depth"]  # torch.Tensor [H, W]
+
+    #     # --- Raw depth (convert from tensor to numpy) ---
+    #     depth_raw = predicted_depth.detach().cpu().numpy()
+
+    #     # --- Normalized visualization ---
+    #     depth_norm = (depth_raw - depth_raw.min()) / (depth_raw.max() - depth_raw.min() + 1e-8)
+    #     depth_vis = Image.fromarray((depth_norm * 255).astype("uint8"))
+
+    #     # --- Save visualization ---
+    #     os.makedirs(save_path, exist_ok=True)
+    #     depth_vis.save(os.path.join(save_path, "depth_image.jpg"))
+
+    #     if debug:
+    #         depth_vis.show()
+
+    #     return depth_raw, depth_vis
     
         # segment images based on depth map
     def segment_surfaces(self, img, original):
@@ -244,7 +297,7 @@ class ImageProcessing:
         return landing_zones
     
     
-    def expand_square(self, depth_map, cx, cy, flat_thresh=1.0, max_size=500):
+    def expand_square(self, depth_map, cx, cy, flat_thresh=0.5, max_size=800):
         """
         Expand a square around (cx, cy) while keeping all depths within flat_thresh.
         Returns bounding box (minr, minc, maxr, maxc).
@@ -281,7 +334,7 @@ class ImageProcessing:
         return (minr, minc, maxr, maxc)
 
     
-    def find_landing_zones(self, depth_map, flat_thresh=0.2, min_size=80, stride=5):
+    def find_landing_zones(self, depth_map, flat_thresh=1, min_size=300, stride=10):
         """
         Find flat landing zones.
         Returns list of bounding boxes [(minr, minc, maxr, maxc), ...]
@@ -295,6 +348,71 @@ class ImageProcessing:
                 size = maxr - minr + 1  # side length
                 if size >= min_size:
                     zones.append((minr, minc, maxr, maxc))
+
+        return zones
+    
+    def boxes_touch_or_overlap(self, box1, box2, pad=1):
+        """Check if two boxes touch or overlap (optionally with small padding)."""
+        minr1, minc1, maxr1, maxc1 = box1
+        minr2, minc2, maxr2, maxc2 = box2
+
+        # Check horizontal + vertical overlap with padding
+        horiz_overlap = not (maxc1 + pad < minc2 or maxc2 + pad < minc1)
+        vert_overlap = not (maxr1 + pad < minr2 or maxr2 + pad < minr1)
+
+        return horiz_overlap and vert_overlap
+
+
+    def similar_height(self, box1, box2, tol=0.4):
+        """Check if heights are similar within a tolerance."""
+        h1 = box1[2] - box1[0]
+        h2 = box2[2] - box2[0]
+        if min(h1, h2) == 0:
+            return False
+        ratio = max(h1, h2) / min(h1, h2)
+        return ratio <= (1 + tol)
+
+
+    def merge_boxes(self, box1, box2):
+        """Return the merged bounding box of two boxes."""
+        minr1, minc1, maxr1, maxc1 = box1
+        minr2, minc2, maxr2, maxc2 = box2
+        return (
+            min(minr1, minr2),
+            min(minc1, minc2),
+            max(maxr1, maxr2),
+            max(maxc1, maxc2),
+        )
+
+
+    def merge_landing_zones_2(self, zones, height_tol=0.4, pad=1):
+        """Merge zones if they touch/overlap and have similar height."""
+        zones = zones.copy()
+        merged = True
+
+        while merged:
+            merged = False
+            new_zones = []
+            used = set()
+
+            for i in range(len(zones)):
+                if i in used:
+                    continue
+                merged_zone = zones[i]
+
+                for j in range(i + 1, len(zones)):
+                    if j in used:
+                        continue
+                    if self.boxes_touch_or_overlap(merged_zone, zones[j], pad) and self.similar_height(merged_zone, zones[j], tol=height_tol):
+                        # Merge them
+                        merged_zone = self.merge_boxes(merged_zone, zones[j])
+                        used.add(j)
+                        merged = True
+
+                new_zones.append(merged_zone)
+                used.add(i)
+
+            zones = new_zones
 
         return zones
     
