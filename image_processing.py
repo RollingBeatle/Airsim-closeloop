@@ -243,7 +243,145 @@ class ImageProcessing:
 
         return landing_zones
     
+    
+    def expand_square(self, depth_map, cx, cy, flat_thresh=1.0, max_size=500):
+        """
+        Expand a square around (cx, cy) while keeping all depths within flat_thresh.
+        Returns bounding box (minr, minc, maxr, maxc).
+        """
+        H, W = depth_map.shape
+        size = 1
+        
+        while True:
+            half = size // 2
+            minr, maxr = cx - half, cx + half
+            minc, maxc = cy - half, cy + half
 
+            if minr < 0 or minc < 0 or maxr >= H or maxc >= W:
+                break  # reached border
+
+            # Extract border pixels of the square
+            top = depth_map[minr, minc:maxc+1]
+            bottom = depth_map[maxr, minc:maxc+1]
+            left = depth_map[minr:maxr+1, minc]
+            right = depth_map[minr:maxr+1, maxc]
+
+            border_vals = np.concatenate([top, bottom, left, right])
+            if np.max(border_vals) - np.min(border_vals) > flat_thresh:
+                break  # too much variation, stop expanding
+
+            size += 2
+            if size > max_size:
+                break
+
+        # final bounding box
+        half = (size-2) // 2   # step back one expansion since last failed
+        minr, maxr = cx - half, cx + half
+        minc, maxc = cy - half, cy + half
+        return (minr, minc, maxr, maxc)
+
+    
+    def find_landing_zones(self, depth_map, flat_thresh=0.2, min_size=80, stride=5):
+        """
+        Find flat landing zones.
+        Returns list of bounding boxes [(minr, minc, maxr, maxc), ...]
+        """
+        H, W = depth_map.shape
+        zones = []
+
+        for r in range(0, H, stride):
+            for c in range(0, W, stride):
+                minr, minc, maxr, maxc = self.expand_square(depth_map, r, c, flat_thresh)
+                size = maxr - minr + 1  # side length
+                if size >= min_size:
+                    zones.append((minr, minc, maxr, maxc))
+
+        return zones
+    
+    def iou(self, box1, box2):
+        """Compute IoU between two boxes (minr, minc, maxr, maxc)."""
+        minr1, minc1, maxr1, maxc1 = box1
+        minr2, minc2, maxr2, maxc2 = box2
+
+        inter_minr = max(minr1, minr2)
+        inter_minc = max(minc1, minc2)
+        inter_maxr = min(maxr1, maxr2)
+        inter_maxc = min(maxc1, maxc2)
+
+        inter_area = max(0, inter_maxr - inter_minr) * max(0, inter_maxc - inter_minc)
+        area1 = (maxr1 - minr1) * (maxc1 - minc1)
+        area2 = (maxr2 - minr2) * (maxc2 - minc2)
+
+        union_area = area1 + area2 - inter_area
+        return inter_area / union_area if union_area > 0 else 0
+
+
+    def iou_along_axis(self, a1, a2, b1, b2):
+        """Overlap ratio along a single axis, relative to smaller span."""
+        inter = max(0, min(a2, b2) - max(a1, b1))
+        smaller = min(a2 - a1, b2 - b1)
+        return inter / smaller if smaller > 0 else 0
+
+
+    def merge_landing_zones(self, zones, overlap_thresh=0.6, iou_thresh=0.5):
+        zones = zones.copy()
+        merged = True
+
+        while merged:
+            merged = False
+            new_zones = []
+            used = set()
+
+            for i in range(len(zones)):
+                if i in used:
+                    continue
+
+                merged_zone = zones[i]
+
+                for j in range(i + 1, len(zones)):
+                    if j in used:
+                        continue
+
+                    zr1 = merged_zone
+                    zr2 = zones[j]
+
+                    minr1, minc1, maxr1, maxc1 = zr1
+                    minr2, minc2, maxr2, maxc2 = zr2
+
+                    merged_flag = False
+
+                    # Case 1: side-by-side horizontally
+                    if abs(minc1 - maxc2) <= 2 or abs(minc2 - maxc1) <= 2:
+                        overlap = self.iou_along_axis(minr1, maxr1, minr2, maxr2)
+                        if overlap >= overlap_thresh:
+                            merged_flag = True
+
+                    # Case 2: stacked vertically
+                    elif abs(minr1 - maxr2) <= 2 or abs(minr2 - maxr1) <= 2:
+                        overlap = self.iou_along_axis(minc1, maxc1, minc2, maxc2)
+                        if overlap >= overlap_thresh:
+                            merged_flag = True
+
+                    # Case 3: IoU overlap
+                    elif self.iou(zr1, zr2) >= iou_thresh:
+                        merged_flag = True
+
+                    if merged_flag:
+                        merged_zone = (
+                            min(minr1, minr2),
+                            min(minc1, minc2),
+                            max(maxr1, maxr2),
+                            max(maxc1, maxc2)
+                        )
+                        used.add(j)
+                        merged = True
+
+                new_zones.append(merged_zone)
+                used.add(i)
+
+            zones = new_zones
+
+        return zones
     def match_areas(self, areas, select_pil_image):
         for area in areas:
             print(area)
@@ -256,25 +394,6 @@ class ImageProcessing:
                 break
         return px, py
     
-    # def inverse_perspective_mapping(self, pose, px, py, surface_height):
-    #     A = surface_height
-    #     hFOV = math.radians(self.fov_degrees)
-    #     vFOV = 2*math.atan(math.tan(hFOV/2)*(self.height/self.width))
-    #     world_w = 2*A*math.tan(hFOV/2); 
-    #     world_h = 2*A*math.tan(vFOV/2)
-    #     mpp_x = world_w/self.width; 
-    #     mpp_y = world_h/self.height
-    #     dx = px - self.width/2 
-    #     dy = py - self.height/2
-    #     north = -dy*mpp_y; 
-    #     east = dx*mpp_x
-    #     tx = pose.x_val + north; 
-    #     ty = pose.y_val + east; 
-    #     tz = pose.z_val
-    #     import pdb; pdb.set_trace()
-    #     print(f"current coords: {pose.x_val}, {pose.y_val}, {pose.z_val}")
-    #     print(f"next coords: {tx}, {ty}, {tz}")
-    #     return tx,ty,tz
     def inverse_perspective_mapping(self, pose, px, py, surface_height, orientation):
         A = surface_height
         hFOV = math.radians(self.fov_degrees)
@@ -291,7 +410,7 @@ class ImageProcessing:
         north = -dy * mpp_y
         east  = dx * mpp_x
         
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         # convert quaternion -> yaw
         q = orientation
         siny_cosp = 2 * (q.w_val * q.z_val + q.x_val * q.y_val)

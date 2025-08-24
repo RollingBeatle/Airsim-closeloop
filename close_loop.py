@@ -156,6 +156,14 @@ def main_pipeline():
                 resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
                 resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
                 resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+                resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
 
                 img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
                 pillow_img = Image.fromarray(img)
@@ -169,12 +177,21 @@ def main_pipeline():
                 if DEPTH_ONLY_PIPELINE or ALT_PIPELINE:
                     # depth map image and segmentation
                     pose = drone.client.getMultirotorState().kinematics_estimated.position
-                    depth_raw, depth_map = processor.depth_analysis_depth_anything(image = pillow_img, max_depth=148)
+                    depth_raw, depth_map = processor.depth_analysis_depth_anything(image = pillow_img, max_depth=148) # depth_raw is metric depth_map is relative
                     img2 = np.array(depth_map)
+                    orientation = drone.client.getMultirotorState().kinematics_estimated.orientation
+                    surface_height = drone.get_rangefinder()
+                    z_map, s = processor.get_Z_Values_From_Depth_Map_2(surface_height, depth_raw, pose.z_val)
+                    z_map_vec = np.vectorize(z_map)
+                    # apply to entire array
+                    depth_mapped = z_map_vec(depth_raw)
                     # get boxes of surfaces
-                    areas = processor.segment_surfaces(img2, np_arr)
+                    # areas = processor.segment_surfaces(img2, np_arr)
+                    areas = processor.find_landing_zones(depth_mapped)
+                    areas = processor.merge_landing_zones(areas)
                     # crop
                     img_copy = np_arr.copy()
+                    
                     processor.crop_surfaces(areas, img_copy)           
                     # read saved detections
                     detections = [Image.fromarray(cv2.imread(os.path.join("./"+DIRS[1], f)))
