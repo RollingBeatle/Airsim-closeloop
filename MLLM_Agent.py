@@ -59,9 +59,13 @@ class GPTAgent(MLLMAgent):
 
         clientGPT = OpenAI(api_key=api_key)
         self.client = clientGPT
+        # models = self.client.models.list()
+        # for mod in models:
+        #     print(mod)
         return clientGPT
     
-    def mllm_call(self,detections):
+    # Sends a call to the MLLM, 
+    def mllm_call(self,detections, coversation_prompt, bb=None):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
         print("debug is active", self.debug)           
@@ -74,13 +78,16 @@ class GPTAgent(MLLMAgent):
                 print("The index is ", det)
                 detections[det].show()
                 input("Press enter to continue")
-                
-        resp = self.completion_retry(
-        content=[
+        message =[
                     {"type": "image_url", "image_url": {"url": self.format_image(det)}}
                     for det in detections  
-                ] + [{"type": "text", "text": self.prompt}],
-        model="gpt-4o-2024-11-20", clientGPT=clientGPT,
+                ] + [{"type": "text", "text": coversation_prompt}]
+        if bb:
+            message + [{"type": "text", "text": bb}]        
+
+        resp = self.completion_retry(
+        content=message,
+        model="gpt-4.1-2025-04-14", clientGPT=clientGPT, # gpt-4.1-2025-04-14
         response_format=ResponseFormatBasic
         )
 
@@ -102,12 +109,15 @@ class GPTAgent(MLLMAgent):
     )
     
     @retry(
-    wait=wait_random_exponential(min=1, max=60),
-    before_sleep=log_errors)
+    wait=wait_random_exponential(min=1, max=60))
     def completion_retry(self, content, model, clientGPT, response_format=NOT_GIVEN):
         response = clientGPT.beta.chat.completions.parse(
             model=model,
             messages=[
+                {
+                    "role": "system",
+                    "content": self.prompt
+                },
                 {
                     "role": "user",
                     "content": content
@@ -115,7 +125,8 @@ class GPTAgent(MLLMAgent):
             ],
             max_tokens=2000,
             temperature=0,
-            response_format=response_format
+            response_format=response_format,
+            timeout=60  
         )
 
         if response.choices[0].finish_reason != "stop":

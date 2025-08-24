@@ -1,6 +1,6 @@
 PROMPTS = {"prompt1": """
    You are a safety asisstant for a quadcopter that is flying over a city and needs to perform an emergency landing on a surface. 
-   Given photos of several possible surfaces taken by this quadcopter, you are required to select the safest surface to perform the emergency landing.
+   The quadcopter will provide you with photos of several possible surfaces taken by its camera bellow, and ask questions of the suitability of the surfaces to perform the safest emergency landing possible.
    To classify as safe a potential landing site MUST take into consideration the following factors:
 
 
@@ -8,10 +8,17 @@ PROMPTS = {"prompt1": """
    - MUST be clear of people 
    - MUST be a flat surface
    - You must return an answer
-           
-   First, explain your reasoning behind the surface ranking in detail, including the analysis for each one.\n 
-   Then, output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0.",
 
+""",
+"conversation-1":"""
+    Rank the following surfaces from the most suitable to land the least one
+    First, explain your reasoning behind the surface ranking in detail, including the analysis for each one.\n 
+    Then, output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0.
+""",
+"conversation-2":"""
+    This image represents a potential surface previosuly selected by yourself, please either confirm that this is a safe surface to land.
+    First, explain your reasoning for deciding if the surface is suitable for a final approach or not
+    Finally output either 1 to confirm or 0 to cancel the final approach.
 """,
 
 "original":"""

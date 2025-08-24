@@ -250,9 +250,9 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
 
 def llm_test(agent:GPTAgent, it_numb, scenario="scenario1" ):
     # cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join("./samples/scenario2", f)), cv2.COLOR_BGR2RGB))
-    for f in os.listdir("./samples/scenario2")]
-    select_pil_image, index, ans = agent.mllm_call(detections) 
+    detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/{scenario}", f)), cv2.COLOR_BGR2RGB))
+    for f in os.listdir(f"./samples/{scenario}")]
+    select_pil_image, index, ans = agent.mllm_call(detections, PROMPTS["conversation-1"]) 
     select_pil_image.save(f"tests/landing_zones/{scenario}_selected_{it_numb}.jpg")
     data = {
         "iteration":[it_numb],
