@@ -32,14 +32,14 @@ LANDING_ZONE_DEPTH_ESTIMATED = True
 DEBUG = False
 # Drone Movement Configurations
 # -----------------------------------------
-MOVE_FIXED = True
+MOVE_FIXED = False
 MANUAL = False      
 MAX_HEIGHT = 155
 # x, y, z, rotation: x,y,z,w
 POSITIONS = [(-103.01084899902344, 20.440589904785156, -119.817626953125, 9.894594032999748e-10, 8.641491966443482e-09, 0.7200981974601746, 0.6938721537590027),
     #(-151.54669189453125, -43.83946990966797, -90.5884780883789),
     #( 6.851377487182617, -191.2527313232422, -105.62255096435547)
-     (48.65536880493164, 80.24543762207031, -101.31468963623047,  -0.9999206066131592, -1.8329383522086573e-07, -2.4937296672078446e-08, 0.012602792121469975)
+     (48.65536880493164, 80.24543762207031, -101.31468963623047,  0.00013935858441982418, -0.000704428821336478, -0.004044117871671915, 0.9999915957450867)
 ]
 # Drone Camera Settings
 # -----------------------------------------
@@ -111,7 +111,7 @@ def clear_dirs():
         shutil.rmtree(del_dir)
    
 # LiDAR based movement
-def lidar_movement(client:airsim.MultirotorClient, px, py):
+def lidar_movement(client:airsim.MultirotorClient, processor:ImageProcessing, px, py):
     lidar_data = client.getLidarData('GPULidar1', 'airsimvehicle')
     lidar_m = LidarMovement()
     pcd_raw = lidar_m.get_open3d_point_cloud(lidar_data.point_cloud)
@@ -139,44 +139,11 @@ def lidar_movement(client:airsim.MultirotorClient, px, py):
     if DEBUG:
         o3d.visualization.draw_geometries([colored_pcd])
 
-    lidar_m.crop_image_around_pixel(image, landing_center, size=100)
-
-    # Get current GPS
-    gps_data = client.getGpsData(gps_name="GPS", vehicle_name="airsimvehicle").gnss.geo_point
-    current_gps = (gps_data.latitude, gps_data.longitude, gps_data.altitude)
-
-    if landing_voxel is None:
-        print("No valid landing voxel found.")
-        return
-
-    # Conversion: 1 meter ≈ 0.000009 deg lat, 0.000011 deg lon (approx.)
-    METERS_TO_LAT = 0.000009
-    METERS_TO_LON = 0.000011
-
-    x_m, y_m, _ = landing_voxel  # x: right, y: forward in LIDAR
-
-    offset_lat = y_m * METERS_TO_LAT
-    offset_lon = -x_m * METERS_TO_LON
-
-    target_lat = current_gps[0] + offset_lat
-    target_lon = current_gps[1] + offset_lon
-
-    # Estimate NED displacement from GPS difference (in meters)-y_m
-    dy = -y_m
-    #dx = x_m # because forward is negative NED x
-    dx = -x_m
-    print(f"Desired landing pixel: {landing_center}")
-    print(f"Actual landing pixel: {landing_pixel}")
-    print(f"Current GPS: {current_gps}")
-    print(f"Target GPS: (lat: {target_lat}, lon: {target_lon})")
-    print(f"Estimated move offset in NED frame: dx={dx:.2f}m, dy={dy:.2f}m")
-
-    # Move using relative position (NED)
-    current_pose = client.getMultirotorState().kinematics_estimated.position
-    target_x = current_pose.x_val + dx
-    target_y = current_pose.y_val + dy
-    target_z = current_pose.z_val  # stay at same height
-    return target_x, target_y, target_z
+    height_surface = landing_voxel[2]
+    pose = client.getMultirotorState().kinematics_estimated.position
+    orientation = client.getMultirotorState().kinematics_estimated.orientation
+    tx, ty, tz = processor.inverse_perspective_mapping_v2(pose, landing_pixel[0], landing_pixel[1], height_surface, orientation)
+    return tx, ty, tz
 
 # Intersection over union score    
 def iou(box1, box2):
@@ -217,7 +184,6 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     # save image
     cv2.imwrite("tests/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
     # surface crop
-    bounding_boxes = None
     depth_map = processor.depth_analysis_depth_anything(pillow_img)
     img2 = np.array(depth_map)
     # get boxes of surfaces
@@ -246,6 +212,16 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     }
     record_module_data("detections", data)
 
+def lidar_detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
+    pos = 0 if scenario=="scenario1" else 1
+    ori = airsim.Quaternionr(
+    x_val=POSITIONS[pos][3],
+    y_val=POSITIONS[pos][4],
+    z_val=POSITIONS[pos][5],
+    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
+
+    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
+    
 
 
 def llm_test(agent:GPTAgent, it_numb, scenario="scenario1" ):
@@ -264,7 +240,7 @@ def llm_test(agent:GPTAgent, it_numb, scenario="scenario1" ):
     record_module_data('mllm_resp', data)
 
     
-def landing_test(drone:DroneMovement, it_numb, scenario="scenario1"):
+def landing_test(drone:DroneMovement, it_numb, processor, scenario="scenario1"):
 
     pos = 0 if scenario=="scenario1" else 1
     ori = airsim.Quaternionr(
@@ -275,7 +251,7 @@ def landing_test(drone:DroneMovement, it_numb, scenario="scenario1"):
 
     px, py = GROUND_TRUTH[scenario]['center_x'], GROUND_TRUTH[scenario]['center_y'] 
     drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    tx, ty, tz = lidar_movement(drone.client, px,py)
+    tx, ty, tz = lidar_movement(drone.client, processor, px,py)
     drone.client.moveToPositionAsync(tx, ty, tz, 3).join();time.sleep(5)
     drone.move_to_z(tz)
     current_pose = drone.client.getMultirotorState().kinematics_estimated.position
@@ -308,10 +284,10 @@ def main_pipeline():
     if TESTING and INDIVIFUAL_MOD:
         for i in range(iterations):
             detections_test(processor, drone, i , CURRENT_SCENARIO)
-        for i in range(iterations):
-            llm_test(MLLM_Agent, i, scenario=CURRENT_SCENARIO)
-        for i in range(iterations):
-            landing_test(drone, i, scenario=CURRENT_SCENARIO)
+        # for i in range(iterations):
+        #     llm_test(MLLM_Agent, i, scenario=CURRENT_SCENARIO)
+        # for i in range(iterations):
+        #     landing_test(drone, i, processor, scenario=CURRENT_SCENARIO)
         return
             
 
@@ -324,12 +300,13 @@ def main_pipeline():
         # Position the drone
         if MOVE_FIXED:
             ori = None
-            # if POSITIONS[0][3]:
-            #     ori = airsim.Quaternionr(
-            #     x_val=POSITIONS[1][3],
-            #     y_val=POSITIONS[1][4],
-            #     z_val=POSITIONS[1][5],
-            #     w_val=POSITIONS[1][6])
+            pos = 0 if CURRENT_SCENARIO=="scenario1" else 1
+            if pos == 0 or pos == 1:
+                ori = airsim.Quaternionr(
+                x_val=POSITIONS[pos][3],
+                y_val=POSITIONS[pos][4],
+                z_val=POSITIONS[pos][5],
+                w_val=POSITIONS[pos][6])
             drone.position_drone(fixed=False,position=(POSITIONS[0][0],POSITIONS[0][1],POSITIONS[0][2]), ori=ori)
         elif MANUAL:
             drone.manual_control()
@@ -397,10 +374,8 @@ def main_pipeline():
                 # do the IPM to get the coordinates
                 pose = drone.client.getMultirotorState().kinematics_estimated.position
                 surface_height = drone.get_rangefinder()
-                z_map = processor.get_Z_Values_From_Depth_Map(abs(pose.z_val), surface_height, depth_map)
-                landing_zone_height = z_map(np.array(depth_map)[py, px])
                 if LANDING_ZONE_DEPTH_ESTIMATED:
-                    tx, ty, tz = lidar_movement(drone.client, px,py)
+                    tx, ty, tz = lidar_movement(drone.client, processor, px, py)
                     #processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
                 else: 
                     tx, ty, tz = processor.inverse_perspective_mapping(pose, px, py, curr_height)
