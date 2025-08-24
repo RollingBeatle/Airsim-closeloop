@@ -41,7 +41,7 @@ def custom_distance(p1, p2):
 from sklearn.cluster import DBSCAN
 import numpy as np
 
-def cluster_landing_zones(flat_areas, distance_threshold=3.3, min_cluster_size=350, z_threshold=0.5):
+def cluster_landing_zones(flat_areas, distance_threshold=3, min_cluster_size=350, z_threshold=0.5):
     """
     Cluster flat areas into larger landing zones. 
     The distance threshold determines how close points need to be to be clustered together in x and y.
@@ -75,7 +75,7 @@ def cluster_landing_zones(flat_areas, distance_threshold=3.3, min_cluster_size=3
 
 
 
-def extract_image_for_landing_zone(image, landing_zone, fx, fy, cx, cy, padding=15):
+def extract_image_for_landing_zone(image, landing_zone, fx, fy, cx, cy, padding=20):
     # Get bounding box of the landing zone in 2D image space
     min_u, min_v = float('inf'), float('inf')
     max_u, max_v = float('-inf'), float('-inf')
@@ -83,7 +83,7 @@ def extract_image_for_landing_zone(image, landing_zone, fx, fy, cx, cy, padding=
     for x, y, z in landing_zone:
         # Convert the 3D point to 2D image coordinates (u, v)
         u = int((fx * x / z) + cx)
-        v = int((fx * y / z) + cy)
+        v = int((fy * y / z) + cy)
         min_u = min(min_u, u)
         min_v = min(min_v, v)
         max_u = max(max_u, u)
@@ -96,20 +96,24 @@ def extract_image_for_landing_zone(image, landing_zone, fx, fy, cx, cy, padding=
     max_v = min(max_v + padding, image.shape[0] - 1)  # Image height
 
     # Calculate dynamic resolution based on the size of the bounding box
-    width = max_u - min_u
-    height = max_v - min_v
-
+    width = abs(max_u - min_u)
+    height = abs(max_v - min_v)
+    print("The width, height: ", width, height)
     # Set minimum resolution thresholds
-    min_resolution = 200  # Minimum width/height resolution
+    min_resolution = 100  # Minimum width/height resolution
     scale_factor = max(min_resolution / min(width, height), 1.0)  # Ensure minimum resolution
-
+    
     # Resize the extracted image dynamically
     extracted_image = image[min_v:max_v, min_u:max_u]
     new_width = int(extracted_image.shape[1] * scale_factor)
     new_height = int(extracted_image.shape[0] * scale_factor)
+    scaled_min_u = int(min_u * scale_factor)
+    scaled_max_u = int(max_u * scale_factor)
+    scaled_min_v = int(min_v * scale_factor)
+    scaled_max_v = int(max_v * scale_factor)
     resized_image = cv2.resize(extracted_image, (new_width, new_height))
 
-    return resized_image
+    return resized_image, (scaled_min_v, scaled_min_u, scaled_max_v, scaled_max_u)
 
 def visualize_point_cloud_with_landing_zones(points, landing_zones):
     # Set up colors for the point cloud
@@ -208,22 +212,29 @@ def find_roofs(pcd_file, seg_img):
     flat_areas = find_flat_areas(points, area_size=area_size, height_tolerance=height_tolerance)
 
     # Cluster landing zones with stricter distance and size criteria
-    landing_zones = cluster_landing_zones(flat_areas, distance_threshold=5.0, min_cluster_size=200, z_threshold=0.5)
+    landing_zones = cluster_landing_zones(flat_areas, distance_threshold=4.0, min_cluster_size=250, z_threshold=0.2)
 
     # Visualize landing zones
-    visualize_point_cloud_with_landing_zones(points, landing_zones)
+    # visualize_point_cloud_with_landing_zones(points, landing_zones)
 
     # Calculate focal lengths
-    fx, fy = calculate_focal_length_from_fov(1080, 1920, 120)
+    fx, fy = calculate_focal_length_from_fov(960, 540, 90)
 
     # Load the segmentation image
     segmentation_image = cv2.imread(f"images/{seg_img}")
-    cx, cy = 540, 960
-
+    # center of the image
+    cx, cy = 960//2,540//2 
+    areas = []
     # Extract images for each landing zone
     for i, zone in enumerate(landing_zones):
-        extracted_image = extract_image_for_landing_zone(segmentation_image, zone, fx, fy, cx, cy)
-        cv2.imwrite(f"landing_zones/landing_zone_{i}.png", extracted_image)
+            try:
+                extracted_image, area = extract_image_for_landing_zone(segmentation_image, zone, fx, fy, cx, cy)
+                
+                areas.append((area,extracted_image))
+                cv2.imwrite(f"landing_zones/landing_zone_{i}.png", extracted_image)
+            except:
+                continue
+    return areas
 
 if __name__ == "__main__":
     find_roofs("point_cloud_1.pcd", "img_1.png")
