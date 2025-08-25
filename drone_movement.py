@@ -7,6 +7,7 @@ import numpy as np
 import time
 import math
 from pynput import keyboard
+import cv2
 
 
 class DroneMovement:
@@ -108,9 +109,15 @@ class DroneMovement:
                 elif k == 'k':
                     print("Estimated position",self.client.getMultirotorState().kinematics_estimated.position)
                     print("Estimated angle", self.client.getMultirotorState().kinematics_estimated.orientation)
+                elif k == "p":
+                    # TODO: set cam name with a variable
+                    resp = self.client.simGetImages([airsim.ImageRequest("frontcamera",airsim.ImageType.Scene,False,False)])[0]
+                    img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
+                    # save image
+                    cv2.imwrite("images/manual-pic.jpg", cv2.cvtColor(img,cv2.COLOR_RGB2BGR))
 
     def on_press(self, key):
-        keys = ['w', 's', 'a', 'd', 'q', 'e','k','m', 'n']
+        keys = ['w', 's', 'a', 'd', 'q', 'e','k','m', 'n', 'p']
         try:
             k = key.char.lower()
             if k == 'x':
