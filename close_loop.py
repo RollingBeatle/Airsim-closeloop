@@ -221,8 +221,30 @@ def lidar_detections_test(processor:ImageProcessing, drone:DroneMovement, it_num
     w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
 
     drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    
-
+    pcd_name = f'pc_{it_numb}_{scenario}'
+    img_name = f'img_{it_numb}_{scenario}'
+    get_image_lidar(pcd_name, img_name, drone.client)
+    areas = find_roofs(pcd_name+'.pcd',img_name+'.jpg')
+    box1 = (GROUND_TRUTH[scenario]['x_min'],GROUND_TRUTH[scenario]['x_max'],GROUND_TRUTH[scenario]['y_min'],GROUND_TRUTH[scenario]['y_max'])
+    selected_area = []
+    for area in areas:
+        score = iou(box1, area[0])
+        if score > curr_max:
+            curr_max = score
+            if len(selected_area) > 0:
+                selected_area.pop()
+            selected_area.append(area)
+    print(selected_area)            
+    img_copy = cv2.imread(f"images/{img_name}.jpg",cv2.COLOR_BGR2RGB)
+    processor.crop_surfaces(selected_area,img_copy,f"lidar_test_{scenario}_{it_numb}")
+    data = {
+        "iteration":[it_numb],
+        "iou_score": [curr_max],
+        "crop_name": [f"test{it_numb}"],
+        "landing_site": [scenario]
+    }
+    record_module_data("detections_lidar", data)
+        
 
 def llm_test(agent:GPTAgent, it_numb, scenario="scenario1" ):
     # cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
@@ -239,6 +261,23 @@ def llm_test(agent:GPTAgent, it_numb, scenario="scenario1" ):
     }
     record_module_data('mllm_resp', data)
 
+def llm_test_closeup(agent:GPTAgent, it_numb, processor,scenario="scenario1" ):
+
+
+    detections, bounding_boxes = processor.crop_five_cuadrants(f"./samples/gt_closeup_{scenario}.jpg")
+    detections = [detections[4]]
+    select_pil_image, index, ans = agent.mllm_call(detections, PROMPTS["conversation-2"]) 
+    # select_pil_image.save(f"tests/landing_zones/close_up{scenario}_selected_{it_numb}.jpg")
+    print("the index is", index)
+    correct = 1 if index == 1 else 0
+    data = {
+        "iteration":[it_numb],
+        "selected_image": [f'{scenario}_selected_{it_numb}.jpg'],
+        "correct": correct,
+        "reason": [ans],
+        "scenario": [scenario]
+    }
+    record_module_data('mllm_resp_closeup', data)
     
 def landing_test(drone:DroneMovement, it_numb, processor, scenario="scenario1"):
 
@@ -284,10 +323,14 @@ def main_pipeline():
     if TESTING and INDIVIFUAL_MOD:
         for i in range(iterations):
             detections_test(processor, drone, i , CURRENT_SCENARIO)
-        # for i in range(iterations):
-        #     llm_test(MLLM_Agent, i, scenario=CURRENT_SCENARIO)
-        # for i in range(iterations):
-        #     landing_test(drone, i, processor, scenario=CURRENT_SCENARIO)
+        for i in range(iterations):
+            llm_test(MLLM_Agent, i, scenario=CURRENT_SCENARIO)
+        for i in range(iterations):
+            llm_test_closeup(MLLM_Agent, i, processor, scenario=CURRENT_SCENARIO)
+        for i in range(iterations):
+            llm_test(MLLM_Agent, i, scenario=CURRENT_SCENARIO)
+        for i in range(iterations):
+            landing_test(drone, i, processor, scenario=CURRENT_SCENARIO)
         return
             
 
@@ -328,7 +371,7 @@ def main_pipeline():
             curr_height = drone.get_rangefinder()
             print("This is the height ", curr_height)
             request_counter = 0
-            while abs(curr_height) > 15:
+            while abs(curr_height) > 10:
                 # getting image from drone TODO: optimize image type
                 resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
                 img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
@@ -386,7 +429,7 @@ def main_pipeline():
                     else:
                         drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
                            
-                elif ALT_PIPELINE and curr_height >= 10:
+                elif ALT_PIPELINE and curr_height >= 5:
 
                     drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
                     # crop for z displacement
