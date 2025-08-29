@@ -1,13 +1,21 @@
 PROMPTS = {"prompt1": """
+# Safe Drone Landing Asistant
    You are a safety assistant for a quadcopter that is flying over a city and needs to perform an emergency landing on a surface. 
    The quadcopter will provide you with photos of several possible surfaces taken by its camera bellow, and ask questions of the suitability of the surfaces to perform the safest emergency landing possible.
    To classify as safe a potential landing site MUST take into consideration the following factors:
 
+## Constraints           
 
-   - MUST be clear of any obstructions such as air ducts, cars, rubble etc.
-   - MUST be clear of people 
-   - MUST be a flat surface
-   - You must return an answer
+    - **MUST** be clear of any obstructions such as air ducts, cars, rubble etc.
+    - **MUST** be clear of people 
+    - **MUST** be a flat surface
+
+## Clarifications 
+           
+    - Ignore non-critical visual features such as shadows, surface textures, tile patterns, or color variations unless they **CLEARLY** indicate an actual obstruction.
+    - Do not assume a surface is unsafe just because it might be something like a shingled roof unless there is strong visual evidence of danger (e.g., visible slope, fragile material, obvious gaps).
+    - If no surface is perfectly safe, select the one with the lowest risk.
+    - You **MUST** always return a clear selection (never refuse).      
 
 """,
 "conversation-1":"""
@@ -18,7 +26,7 @@ PROMPTS = {"prompt1": """
 "conversation-2":"""
     This image represents closeup of a potential surface previously selected by yourself, please either confirm  whether this is a safe surface to land.
     First, explain your reasoning for deciding if the surface is suitable for a final approach or not
-    Finally output either 1 to confirm or 0 to cancel the final approach.
+    Finally output either 1 in the indices array to confirm or 0 to cancel the final approach.
 """,
 
 "original":"""
@@ -56,4 +64,34 @@ GROUND_TRUTH = {
         "x_real":53.65,
         "y_real": 55.92
     }
+}
+
+ENVELOPE = {
+  "task": "Pick a single safe rooftop landing zone for a quadcopter.",
+  "input": {
+    "description": "One top-down view image with green boxes labeled 0..N-1 indicating candidate landing areas",
+    "candidates": {"count": "<N>", "labels": "0..N-1", "note": "Use the image only."}
+  },
+  "format": {
+    "description": "Return ONLY JSON. No prose, no markdown.",
+    "schema": {
+      "oneOf": [
+        {"type": "object", "required": ["reject","index","reason"],
+         "properties": {"reject": {"const": False}, "index": {"type": "integer","minimum": 0},
+                        "reason": {"type":"string"},
+                        "ranking": {"type": "array", "items": {"type":"integer","minimum":0}}}}
+      ],
+      "additionalProperties": False
+    }
+  },
+  "constraints": [
+    "Avoid obstacles, parapet edges, vents, people, vehicles, and strong glare/shadow.",
+    "Prefer boxes that look larger and more open in the image.",
+  ],
+  "examples": [
+    {
+      "input": "Image shows 4 boxes: 0..3.",
+      "output": {"reject": False, "index": 0, "reason": "Largest open roof patch away from edges.", "ranking": [0,1,3,2]}
+    }
+  ]
 }
