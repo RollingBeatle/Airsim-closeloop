@@ -47,9 +47,25 @@ class MLLMAgent(ABC):
         pass
 
 class ResponseFormatBasic(BaseModel):
-    Answer: List[str]
+    Answer: str
     Indices: List[str]
 
+ResponseFormatDecision = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "landing_decision",
+        "strict": False,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "index": {"type": "integer", "minimum": 0, "description": "Chosen candidate index "},
+                "reason": {"type": "string", "description": "Reason for choice"}
+            },
+            "required": ["index", "reason"],
+            "additionalProperties": False
+        }
+    }
+}
 
 class GPTAgent(MLLMAgent):
 
@@ -65,7 +81,7 @@ class GPTAgent(MLLMAgent):
         return clientGPT
     
     # Sends a call to the MLLM, 
-    def mllm_call(self,detections, coversation_prompt, bb=None):
+    def mllm_call(self,detections, coversation_prompt, bb=None, full_img=None):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
         print("debug is active", self.debug)           
@@ -77,25 +93,36 @@ class GPTAgent(MLLMAgent):
             for det in range(len(detections)):
                 print("The index is ", det)
                 detections[det].show()
-                input("Press enter to continue")
+                input("Press enter to continue") 
         message =[
-                    {"type": "image_url", "image_url": {"url": self.format_image(det)}}
+                    {"type": "image_url", "image_url": {"url":self.format_image(det)}}
                     for det in detections  
-                ] + [{"type": "text", "text": coversation_prompt}]
+                ] 
+        prompt_m =  [{"type": "text", "text": coversation_prompt}]
+        message.extend(prompt_m)
         if bb:
-            message + [{"type": "text", "text": bb}]        
+            message + [{"type": "text", "text": bb}]
+        if full_img: 
+            message.extend([{"type": "image_url", "image_url": {"url":self.format_image(full_img)}}])        
+
 
         resp = self.completion_retry(
         content=message,
-        model="gpt-4.1-2025-04-14", clientGPT=clientGPT, # gpt-4.1-2025-04-14
+        model="gpt-5", clientGPT=clientGPT, # gpt-4.1-2025-04-14
         response_format=ResponseFormatBasic
         )
 
         result = json.loads(resp.choices[0].message.content)
         rich.print(result)  
-        # detections[int(result['Indices'][0])].show()
+        index = int(result['Indices'][0])
+        if len(detections) == 1:
+            index = 0
         try:
-            return detections[int(result['Indices'][0])], int(result['Indices'][0]), result['Answer']
+            if self.debug:
+                print("The selected image")
+                detections[index].show()
+            print(int(result['Indices'][0]))
+            return detections[index], int(result['Indices'][0]), result['Answer']
         # return result['Coordinates'][0]
         except:
             return None, 0, result['Answer']
@@ -108,10 +135,9 @@ class GPTAgent(MLLMAgent):
         )
     )
     
-    @retry(
-    wait=wait_random_exponential(min=1, max=60))
-    def completion_retry(self, content, model, clientGPT, response_format=NOT_GIVEN):
-        response = clientGPT.beta.chat.completions.parse(
+    
+    def completion_retry(self, content, model, clientGPT:OpenAI, response_format=NOT_GIVEN):
+        response = clientGPT.chat.completions.parse(
             model=model,
             messages=[
                 {
@@ -123,10 +149,8 @@ class GPTAgent(MLLMAgent):
                     "content": content
                 }
             ],
-            max_tokens=2000,
-            temperature=0,
-            response_format=response_format,
-            timeout=60  
+            
+            response_format=response_format
         )
 
         if response.choices[0].finish_reason != "stop":
@@ -148,7 +172,8 @@ class GPTAgent(MLLMAgent):
 
         url = f"data:image/jpeg;base64,{encoded_image}"
         return url
-
+    
+    
 
 
 
