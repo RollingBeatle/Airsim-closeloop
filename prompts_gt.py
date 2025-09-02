@@ -19,14 +19,65 @@ PROMPTS = {"prompt1": """
 
 """,
 "conversation-1":"""
-    Rank the following surfaces from the most suitable to land the least one.
-    First, explain your reasoning behind the surface ranking in detail, including the analysis for each one.\n 
-    Then, output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0.
+    You are receiving up to **5 images** from the drone:
+
+    - **Images 0–4** (maximum 5 images): Candidate surfaces for landing. 
+
+    ### Task
+    1. Analyze each candidate surface (Images 0–4).  
+    2. Rank the candidate surfaces from **most suitable** to **least suitable** for landing.  
+    3. Provide detailed reasoning for each candidate, explaining why it is more or less suitable. 
+    4. Output the ranking as a list of indices (corresponding to the candidate images only).  
+
+    ### Output Format
+    1. **Detailed Explanation** (paragraphs describing reasoning for each candidate).  
+    2. **Final Ranking**: output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0. 
+
 """,
 "conversation-2":"""
     This image represents closeup of a potential surface previously selected by yourself, please either confirm  whether this is a safe surface to land.
     First, explain your reasoning for deciding if the surface is suitable for a final approach or not
     Finally output either 1 in the indices array to confirm or 0 to cancel the final approach.
+""",
+"conversation-2-1":"""
+    You are receiving a **close-up image** of a potential landing surface that was previously selected by you.  
+    Your task is to confirm whether this surface is safe for a **final landing approach**.
+
+    ### Task
+    1. Analyze the surface in the close-up image.  
+    2. Decide if the surface is **safe to land** or **unsafe**.  
+    3. Provide a detailed explanation of your reasoning.  
+    4. Output your decision as an index array with a single value:  
+        - 1 in the indices array to confirm or 0 to cancel the final approach.
+
+    ### Notes
+    - Ignore **non-critical details** such as shadows, lighting variations, or surface patterns unless they clearly indicate a real hazard.  
+    - Confirm landing if the surface appears **flat, unobstructed, and free of people**.  
+    - Deny landing only if there is clear evidence of danger (obstructions, slope, rubble, fragile/unsafe material).  
+    - Always return a decision (never leave it blank).  
+
+    ### Output Format
+    1. **Explanation** (paragraph justifying your decision).  
+    2. **Final Decision** in the form: 1 in the indices array to confirm or 0 to cancel the final approach.
+""",
+"conversation-1-2":"""
+    You are receiving up to **6 images** from the drone:
+
+    - **Images 0–4** (maximum 5 images): Candidate surfaces for landing.  
+    - **Last image (always the final one)**: The full scene from the drone, provided **only for context**.  
+    - Do **not** treat the last image as a landing candidate.  
+    - Use it only to better understand the candidate surfaces.
+
+    ### Task
+    1. Analyze each candidate surface (Images 0–4).  
+    2. Rank the candidate surfaces from **most suitable** to **least suitable** for landing.  
+    3. Provide detailed reasoning for each candidate, explaining why it is more or less suitable.  
+    4. Output the ranking as a list of indices (corresponding to the candidate images only).  
+
+    ### Output Format
+    1. **Detailed Explanation** (paragraphs describing reasoning for each candidate).  
+    2. **Final Ranking**: output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0. 
+
 """,
 
 "original":"""
@@ -51,7 +102,11 @@ GROUND_TRUTH = {
         "center_x":624,
         "center_y":275,
         "x_real":-122.49,
-        "y_real": 19.96
+        "y_real": 19.96,
+        "x_min_w": 210,
+        "x_max_w": 392,
+        "y_min_w": 148,
+        "y_max_w": 421,
     },
     # player Start position scenario 2 (X=36226.923474,Y=-24778.931072,Z=181.969621)
     "scenario2": {
@@ -62,7 +117,11 @@ GROUND_TRUTH = {
         "center_x":276,
         "center_y":220,
         "x_real":53.65,
-        "y_real": 55.92
+        "y_real": 55.92,
+        "x_min_w": 615,
+        "x_max_w": 746,
+        "y_min_w": 71,
+        "y_max_w": 360,
     }
 }
 
