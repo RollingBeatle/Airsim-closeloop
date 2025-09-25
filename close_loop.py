@@ -222,19 +222,6 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     }
     record_module_data("detections", data)
 
-def tunning_par(processor:ImageProcessing, scenario="scenario1" ):
-    detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/general", f)), cv2.COLOR_BGR2RGB))
-                  for f in os.listdir(f"./samples/general/")]
-    pillow_img = detections[0]
-    np_arr = np.array(pillow_img)
-    depth_map = processor.depth_analysis_depth_anything(pillow_img)
-    img2 = np.array(depth_map)
-    # get boxes of surfaces
-    areas = processor.segment_surfaces(img2, np_arr)
-    # crop
-    img_copy = np_arr.copy()
-    processor.crop_surfaces(areas, img_copy)           
-    
 
 def lidar_detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
     pos = 0 if scenario=="scenario1" else 1
@@ -363,7 +350,7 @@ def load_halton_points():
     return loaded_tuples
 
 def main_pipeline():
-    from prompts_gt import OTHER_SURFACES_1, OTHER_SURFACES_2
+    
     # First load the prompt
     prompt = PROMPTS[PROMPT_NAME]
 
@@ -372,28 +359,7 @@ def main_pipeline():
     processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
     drone = DroneMovement()
 
-    # full_img = cv2.imread(f"./samples/ground_truth_scenario1.jpg", cv2.COLOR_RGB2BGR)
-    # full_img2 = cv2.imread(f"./samples/ground_truth_scenario2.jpg", cv2.COLOR_BGR2RGB)
-
-    # # areas1 = [(OTHER_SURFACES_1['y_min1'], OTHER_SURFACES_1['x_min1'], OTHER_SURFACES_1['y_max1'], OTHER_SURFACES_1['x_max1']),
-    # #          (OTHER_SURFACES_1['y_min2'], OTHER_SURFACES_1['x_min2'], OTHER_SURFACES_1['y_max2'], OTHER_SURFACES_1['x_max2']),
-    # #          (OTHER_SURFACES_1['y_min3'], OTHER_SURFACES_1['x_min3'], OTHER_SURFACES_1['y_max3'], OTHER_SURFACES_1['x_max3'])
-    # #          ]
-    # # processor.crop_surfaces(areas1, img=full_img, scale=1.2)
-    # areas1 = [(OTHER_SURFACES_2['y_min1'], OTHER_SURFACES_2['x_min1'], OTHER_SURFACES_2['y_max1'], OTHER_SURFACES_2['x_max1']),
-    #          (OTHER_SURFACES_2['y_min2'], OTHER_SURFACES_2['x_min2'], OTHER_SURFACES_2['y_max2'], OTHER_SURFACES_2['x_max2']),
-    #          (OTHER_SURFACES_2['y_min3'], OTHER_SURFACES_2['x_min3'], OTHER_SURFACES_2['y_max3'], OTHER_SURFACES_2['x_max3'])
-    #          ]
-    # areas1 = [(GROUND_TRUTH['scenario2']['y_min'], GROUND_TRUTH['scenario2']['x_min'], GROUND_TRUTH['scenario2']['y_max'], GROUND_TRUTH['scenario2']['x_max']),
-    #          (GROUND_TRUTH['scenario2']['y_min_w'], GROUND_TRUTH['scenario2']['x_min_w'], GROUND_TRUTH['scenario2']['y_max_w'], GROUND_TRUTH['scenario2']['x_max_w'])]
-    # processor.crop_surfaces(areas1, img=full_img2, scale=1.6)
-    # areas2 = [(GROUND_TRUTH['scenario2']['y_min'], GROUND_TRUTH['scenario2']['x_min'], GROUND_TRUTH['scenario2']['y_max'], GROUND_TRUTH['scenario2']['x_max']),
-    #          (GROUND_TRUTH['scenario2']['y_min_w'], GROUND_TRUTH['scenario2']['x_min_w'], GROUND_TRUTH['scenario2']['y_max_w'], GROUND_TRUTH['scenario2']['x_max_w'])]
-    
-    # processor.crop_surfaces(areas2, img=full_img2, scale=1.2)
-    # tunning_par(processor)
-    # return
-    # set testing vars"scenario1",
+   
     iterations = 20 if TESTING else 1
 
     if TESTING and INDIVIFUAL_MOD:
