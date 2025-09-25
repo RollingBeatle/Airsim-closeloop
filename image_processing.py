@@ -17,17 +17,44 @@ class ImageProcessing:
         self.debug = debug
     
         
-    def crop_surfaces(self, area, img, alt_name=None):
+    def crop_surfaces(self, area, img, alt_name=None, scale=None):
+        # cropped_image = image[startY:endY, startX:endX]
+
         out = img.copy()
         i = 0
+        new_areas = []
         for a in area:
-            crop = out[a[0]:a[2], a[1]:a[3]]
+            x_1, x_2, y_1, y_2 = a[1], a[3], a[0], a[2]
+            w = x_2 - x_1
+            h = y_2 - y_1
+            cx = x_1 + w //2
+            cy = y_1 + h //2
+            
+            fname = f'landing_zones/landing_zone{i}.jpg'
             if alt_name: 
                 fname = f'landing_zones/test_landing_zone{alt_name}.jpg'
+            if scale:
+                new_w = int(w*scale)
+                new_h = int(h*scale)
+
+                new_x1 = max(cx - new_w //2, 0)
+                new_y1 = max(cy - new_h //2, 0)
+
+                new_x2 = min(cx + new_w //2, img.shape[1])
+                new_y2 = min(cy + new_h //2, img.shape[0])
+
+                marg_crop = out[new_y1:new_y2, new_x1:new_x2]
+                new_areas.append((new_y1,new_x1,new_y2,new_x2))
+                cv2.imwrite(fname, cv2.cvtColor(marg_crop,cv2.COLOR_RGB2BGR))
+                # cv2.imwrite(fname,marg_crop)
             else:
-                fname = f'landing_zones/landing_zone{i}.jpg'
-            cv2.imwrite(fname, cv2.cvtColor(crop,cv2.COLOR_RGB2BGR))
+                crop = out[y_1:y_2, x_1:x_2]
+                
+                cv2.imwrite(fname, cv2.cvtColor(crop,cv2.COLOR_RGB2BGR))
             i+=1
+        if scale:
+            return new_areas
+        else: return area
     
     def crop_five_cuadrants(self, image):
 
@@ -107,13 +134,36 @@ class ImageProcessing:
 
                 # avoid bounding box covering whole image
                 if not (w * h == size):
-                    cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    # cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
                     areas.append((y, x, y + h, x + w))  # match (minr, minc, maxr, maxc)
-
+        areas = self.filter_bb(areas)
+        for area in areas:
+            cv2.rectangle(annotated, (area[1], area[0]), (area[3], area[2]), (0, 255, 255), 2)
         # Save annotated result
         cv2.imwrite("images/flat_surfaces_annotated.jpg", annotated)
 
         return areas
+    
+    def containment(self, box1, box2):
+        return (box1[0] <= box2[0] and
+                box1[1] <= box2[1] and
+                 box1[2] >= box2[2] and
+                  box1[3] >= box2[3]  )
+    
+    def filter_bb(self, boxes):
+        suitable = []
+        for i, bb_i in enumerate(boxes):
+            discard = False
+            for j, bb_j in enumerate(boxes):
+                if i != j and self.containment(bb_i,bb_j):
+                    print("ymin,    xmin,   ymax,    xmax")
+                    print(bb_i, "contains", bb_j)
+                    discard = True
+                    break
+            if not discard:
+                suitable.append(bb_i)
+        return suitable
+
         # segment images based on depth map
     def segment_surfaces1(self, img, original):
         

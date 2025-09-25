@@ -5,7 +5,7 @@ Author: Diego Ortiz Barbosa
 August 2025
 """
 from abc import ABC, abstractmethod
-import os
+import time
 import numpy as np
 import cv2 
 from PIL import Image
@@ -81,12 +81,13 @@ class GPTAgent(MLLMAgent):
         return clientGPT
     
     # Sends a call to the MLLM, 
-    def mllm_call(self,detections, coversation_prompt, bb=None, full_img=None):
+    def mllm_call(self,detections, coversation_prompt, no_dets = False, full_img=[], model='gpt-5'):
         # Get GPT Client
         clientGPT = self.get_mllm_agent()
-        print("debug is active", self.debug)           
+        print("debug is active", self.debug)    
+             
         # we want to send at most 5 areas to the LLM
-        if len(detections) > 5:
+        if len(detections) > 5 and not no_dets:
             sorted_images_by_area = sorted(detections, key=lambda img: img.width * img.height, reverse=True)
             detections = sorted_images_by_area[:5]
         if self.debug:
@@ -94,27 +95,45 @@ class GPTAgent(MLLMAgent):
                 print("The index is ", det)
                 detections[det].show()
                 input("Press enter to continue") 
-        message =[
-                    {"type": "image_url", "image_url": {"url":self.format_image(det)}}
-                    for det in detections  
-                ] 
+        message = []
+        for i in range(len(detections)):
+            message.extend([{"type": "text", "text":f"[Image{i}]"},
+                    {"type": "image_url", 
+                     "image_url": {"url":self.format_image(detections[i])}
+                     }])
+            
+        # message1 =[  {"type": "text", "text":"[Image]{}"},
+        #             {"type": "image_url", "image_url": {"url":self.format_image(det)}}
+        #             for det in detections  
+        #         ] 
         prompt_m =  [{"type": "text", "text": coversation_prompt}]
+        print("we are sending ", len(detections), ' surfaces')  
+        print("current model: ", model)
         message.extend(prompt_m)
-        if bb:
-            message + [{"type": "text", "text": bb}]
-        if full_img: 
-            message.extend([{"type": "image_url", "image_url": {"url":self.format_image(full_img)}}])        
+        # if bb:
+        #     message + [{"type": "text", "text": bb}]
+        if len(full_img)>0: 
+            print("adding context")
+            full_img = Image.fromarray(cv2.cvtColor(full_img, cv2.COLOR_BGR2RGB))
+            message.extend([{"type": "text", "text":f"[Context Image]"},
+                            {"type": "image_url", "image_url": {"url":self.format_image(full_img)}}])        
 
+        # print("message")
+        # rich.print(message)
+        start_time = time.time()
 
         resp = self.completion_retry(
         content=message,
-        model="gpt-5", clientGPT=clientGPT, # gpt-4.1-2025-04-14
+        model=model, clientGPT=clientGPT, # gpt-4.1-2025-04-14
         response_format=ResponseFormatBasic
         )
+
+        end_time = time.time()
 
         result = json.loads(resp.choices[0].message.content)
         rich.print(result)  
         index = int(result['Indices'][0])
+        response_time = end_time - start_time
         if len(detections) == 1:
             index = 0
         try:
@@ -122,10 +141,11 @@ class GPTAgent(MLLMAgent):
                 print("The selected image")
                 detections[index].show()
             print(int(result['Indices'][0]))
-            return detections[index], int(result['Indices'][0]), result['Answer']
-        # return result['Coordinates'][0]
-        except:
-            return None, 0, result['Answer']
+            return detections[index], int(result['Indices'][0]), result['Answer'], result['Indices'], response_time
+        
+        except Exception as e:
+            print("Caught exception:", type(e).__name__, "-", e)
+            return None, 0, result['Answer'], result['Indices'], response_time
     
 
     def log_errors(self, retry_state):

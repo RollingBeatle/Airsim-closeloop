@@ -20,7 +20,7 @@ class DroneMovement:
         self.client.enableApiControl(True); self.client.armDisarm(True)
         self.client.takeoffAsync().join(); time.sleep(1)
 
-        self.speed = 2  # m/s
+        self.speed = 5  # m/s
         self.duration = 0.5 
         self.debug = debug
     
@@ -31,11 +31,12 @@ class DroneMovement:
             self.client.moveToPositionAsync(x,y,z,3).join()
         
         else:
-            z0 = -np.random.uniform(40, 50)
+            z0 = -np.random.uniform(230,250)
             pose = self.client.getMultirotorState().kinematics_estimated.position
             self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
             x,y,z = position
             
+            self.client.moveToPositionAsync(x,y,z0,3).join(); time.sleep(5)
             self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(5)
             if ori:
                 pos = self.client.getMultirotorState().kinematics_estimated.position
@@ -85,7 +86,7 @@ class DroneMovement:
         listener.start()
         self.running = True
         self.command_queue = []
-        print("Controls: w/s = forward/back | a/d = left/right | q/e = up/down | x = exit | k = position")
+        print("Controls: w/s = forward/back | a/d = left/right | q/e = up/down | x = exit | k = position| p = take pictures")
         while self.running:
             if self.command_queue:
                 k = self.command_queue.pop(0)
