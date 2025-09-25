@@ -64,7 +64,7 @@ PROMPTS = {"prompt1": """
     You are receiving up to **6 images** from the drone:
 
     - **Images 0–4** (maximum 5 images): Candidate surfaces for landing.  
-    - **Last image (always the final one)**: The full scene from the drone, provided **only for context**.  
+    - **Last image, marked as **Context Image** (always the final one)**: The full scene from the drone, provided **only for context**.  
     - Do **not** treat the last image as a landing candidate.  
     - Use it only to better understand the candidate surfaces.
 
@@ -77,7 +77,6 @@ PROMPTS = {"prompt1": """
     ### Output Format
     1. **Detailed Explanation** (paragraphs describing reasoning for each candidate).  
     2. **Final Ranking**: output the indices corresponding to each photo, representing the ranking from the most suitable place to land to the least one.\n The index starts at 0. 
-
 """,
 
 "original":"""
@@ -124,6 +123,42 @@ GROUND_TRUTH = {
         "y_max_w": 360,
     }
 }
+OTHER_SURFACES_1 = {
+    "x_min1": 457,
+    "x_max1": 625,
+    "y_min1": 507,
+    "y_max1": 538,
+
+    "x_min2": 661,
+    "x_max2": 953,
+    "y_min2": 0,
+    "y_max2": 97,
+
+    "x_min3": 1,
+    "x_max3": 189,
+    "y_min3": 384,
+    "y_max3": 503,
+
+}
+
+OTHER_SURFACES_2 = {
+    "x_min1": 287,
+    "x_max1": 417,
+    "y_min1": 503,
+    "y_max1": 536,
+
+    "x_min2": 819,
+    "x_max2": 953,
+    "y_min2": 121,
+    "y_max2": 261,
+
+    "x_min3": 475,
+    "x_max3": 558,
+    "y_min3": 37,
+    "y_max3": 104,
+    
+}
+
 
 ENVELOPE = {
   "task": "Pick a single safe rooftop landing zone for a quadcopter.",
