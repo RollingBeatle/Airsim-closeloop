@@ -1,7 +1,7 @@
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from openai import OpenAI
-from prompts_gt import GROUND_TRUTH
+from prompts_gt import GROUND_TRUTH, PROMPTS
 from image_processing import ImageProcessing
 import cv2
 from PIL import Image
@@ -9,9 +9,12 @@ import os
 import numpy as np
 import pandas as pd
 import cosysairsim as airsim
+import math
 from drone_movement import DroneMovement
+from MLLM_Agent import GPTAgent
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
+from LiDAR.lidar_baseline import LidarMovement
 
 ## Camera settings
 # -----------------------------------------
@@ -30,6 +33,11 @@ MAX_HEIGHT = 155
 POSITIONS = [(-103.01084899902344, 20.440589904785156, -119.817626953125, 9.894594032999748e-10, 8.641491966443482e-09, 0.7200981974601746, 0.6938721537590027),
      (48.65536880493164, 80.24543762207031, -101.31468963623047,  0.00013935858441982418, -0.000704428821336478, -0.004044117871671915, 0.9999915957450867)
 ]
+# Testing Configurations
+# -----------------------------------------
+SEND_FULL = False # Attach the full image to the request
+MARGINS = False # Add additional context to the detected surface
+
 
 def crop_gt_surfaces(img_width, img_height, fov, scale, scene="1"):
     """Crop the ground truth surfaces with a determined padding scale"""
@@ -87,6 +95,9 @@ def iou(box1, box2):
     return iou      
 
 def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
+    """
+    Test the detection module by taking a picture in airsim, can be changed by suppliying the ground truth
+    """
     pos = 0 if scenario=="scenario1" else 1
     ori = airsim.Quaternionr(
     x_val=POSITIONS[pos][3],
@@ -131,6 +142,9 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     record_data("detections", data)
 
 def lidar_detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
+    """
+    Test a possible LiDAR detection implementation
+    """
     pos = 0 if scenario=="scenario1" else 1
     ori = airsim.Quaternionr(
     x_val=POSITIONS[pos][3],
@@ -176,6 +190,134 @@ def record_data(dirs, data):
     else:
         df.to_csv(dirs, index=False)
 
+def llm_test(agent:GPTAgent, it_numb, scenario="scenario1", expanded="" ):
+    """
+    Test the individual LVLM module for the ranking stage
+    """
+    # cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB) ,
+    models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
+    detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/{scenario}", f)), cv2.COLOR_BGR2RGB))              
+    for f in os.listdir(f"./samples/{scenario}")]
+    for m in models:
+        prompt = PROMPTS["conversation-1"]
+        full_img = []
+        if(SEND_FULL):
+            full_img = cv2.imread(f"./samples/ground_truth_{scenario}.jpg", cv2.COLOR_BGR2RGB)
+            prompt = PROMPTS["conversation-1-2"]
+            expanded = "FI"
+        if(MARGINS):
+            detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/{scenario}-{expanded}", f)), cv2.COLOR_BGR2RGB))              
+                for f in os.listdir(f"./samples/{scenario}-{expanded}")]
+            select_pil_image, index, ans, ranks, resp_time = agent.mllm_call(detections, prompt, full_img=full_img, model=m)
+        else:
+            select_pil_image, index, ans, ranks, resp_time = agent.mllm_call(detections, prompt, full_img=full_img, model=m) 
+        
+        select_pil_image.save(f"tests/landing_zones/{m}_{scenario}_selected_{it_numb}_{expanded}.jpg")
+        data = {
+            "iteration":[it_numb],
+            "selected_image": [f'{m}_{scenario}_selected_{it_numb}_{expanded}.jpg'],
+            "correct": 0,
+            "reason": [ans],
+            "response_time": [resp_time],
+            "ranks": [ranks],
+            "scenario": [scenario]
+            
+        }
+        record_data(f'mllm_resp_{m}_{expanded}', data)
+
+def llm_test_closeup(agent:GPTAgent, it_numb, processor,scenario="scenario1" ):
+    """
+    Test the individual LVLM module for the confirmation stage
+    """
+    models = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano']
+    
+    detections, _ = processor.crop_five_cuadrants(f"./samples/gt_closeup_{scenario}.jpg")
+    detections = [detections[4]]
+    for m in models:
+        _, index, ans, ranks, response_time = agent.mllm_call(detections, PROMPTS["conversation-2"], model=m) 
+        
+        # select_pil_image.save(f"tests/landing_zones/close_up{scenario}_selected_{it_numb}.jpg")
+        print("the index is", index)
+        correct = 1 if index == 1 else 0
+        data = {
+            "iteration":[it_numb],
+            "selected_image": [f'{scenario}_selected_{it_numb}.jpg'],
+            "correct": correct,
+            "reason": [ans],
+            "response_time": [response_time],
+            "ranks": [ranks],
+            "scenario": [scenario]
+            
+        }
+        record_data(f'mllm_resp_closeup_{m}', data)
+
+def landing_test(drone:DroneMovement, it_numb, processor, scenario="scenario1"):
+    """
+    Test the conversion of the image space to the simulation space and its movement
+    """
+    pos = 0 if scenario=="scenario1" else 1
+    ori = airsim.Quaternionr(
+    x_val=POSITIONS[pos][3],
+    y_val=POSITIONS[pos][4],
+    z_val=POSITIONS[pos][5],
+    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
+
+    px, py = GROUND_TRUTH[scenario]['center_x'], GROUND_TRUTH[scenario]['center_y'] 
+    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
+    tx, ty, tz = lidar_movement(drone.client, processor, px,py)
+    drone.client.moveToPositionAsync(tx, ty, tz, 3).join();time.sleep(5)
+    drone.move_to_z(tz)
+    current_pose = drone.client.getMultirotorState().kinematics_estimated.position
+    actual_x, actual_y = current_pose.x_val, current_pose.y_val
+
+    dist = math.sqrt((actual_x - GROUND_TRUTH[scenario]['x_real'])**2 + (actual_y - GROUND_TRUTH[scenario]['y_real'])**2)
+    print("distance to x y ",dist)
+    data = {
+        "iteration":[it_numb],
+        "actual_x": [actual_x],
+        "actual_y": [actual_y],
+        "distance_point": [dist],
+        "scenario": [scenario]
+    }
+    record_data('landing', data)
+
+def lidar_movement(client:airsim.MultirotorClient, processor:ImageProcessing, px, py):
+    """
+    LiDAR based movement single test
+    """
+    lidar_data = client.getLidarData('GPULidar1', 'airsimvehicle')
+    lidar_m = LidarMovement()
+    pcd_raw = lidar_m.get_open3d_point_cloud(lidar_data.point_cloud)
+    pcd = lidar_m.rotate_point_cloud(pcd_raw)
+    points = np.asarray(pcd.points)
+
+    image = lidar_m.get_current_image(client, CAM_NAME)
+
+    h_img, w_img = image.shape[:2]
+    landing_center = (px,py)
+    print(f"width: {w_img}, height: {h_img}")
+    fx, fy = lidar_m.calculate_focal_length_from_fov(w_img, h_img, 90)
+    pixel_to_coord = lidar_m.map_coord_to_pixel(image, points, fx, fy)
+    landing_pixel, landing_voxel = lidar_m.find_closest_voxel_to_pixel(landing_center, pixel_to_coord)
+
+    height_surface = landing_voxel[2]
+    pose = client.getMultirotorState().kinematics_estimated.position
+    orientation = client.getMultirotorState().kinematics_estimated.orientation
+    tx, ty, tz = processor.inverse_perspective_mapping_v2(pose, landing_pixel[0], landing_pixel[1], height_surface, orientation)
+    return tx, ty, tz
+
+def load_halton_points():
+    """
+    Load Halton points for map covering testing
+    """
+    loaded_tuples = []
+    with open("points_halton.txt", "r") as f:
+        for line in f:
+            x, y = line.strip().split(",")
+            loaded_tuples.append((float(x), float(y)))
+    return loaded_tuples
+
+    
 def main():
     crop_gt_surfaces(960,540,90, 1, scene=1)
 

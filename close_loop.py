@@ -342,6 +342,9 @@ def landing_test(drone:DroneMovement, it_numb, processor, scenario="scenario1"):
     record_module_data('landing', data)
 
 def load_halton_points():
+    """
+    
+    """
     loaded_tuples = []
     with open("points_halton.txt", "r") as f:
         for line in f:
