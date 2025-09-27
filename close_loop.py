@@ -9,11 +9,7 @@ import numpy as np
 import time
 import pandas as pd
 import os
-import math
 import open3d as o3d
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
-from openai import OpenAI
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
 from drone_movement import DroneMovement
@@ -22,7 +18,6 @@ from image_processing import ImageProcessing
 from prompts_gt import PROMPTS, GROUND_TRUTH
 
 from LiDAR.lidar_baseline import LidarMovement
-from reasons import reasons
 # CONFIGURATION VARIABLES
 # Pipeline Selection
 # -----------------------------------------
@@ -155,205 +150,8 @@ def lidar_movement(client:airsim.MultirotorClient, processor:ImageProcessing, px
     tx, ty, tz = processor.inverse_perspective_mapping_v2(pose, landing_pixel[0], landing_pixel[1], height_surface, orientation)
     return tx, ty, tz
 
-# Intersection over union score    
-def iou(box1, box2):
-    # box1 is ground truth
-    x1_min, x1_max, y1_min, y1_max = box1
-    y2_min, x2_min, y2_max, x2_max = box2
-
-    inter_xmin = max(x1_min, x2_min)
-    inter_xmax = min(x1_max, x2_max)
-    inter_ymin = max(y1_min, y2_min)
-    inter_ymax = min(y1_max, y2_max)
-
-    inter_w = max(0,inter_xmax - inter_xmin)
-    inter_h = max(0,inter_ymax - inter_ymin)
-    inter_a = inter_w * inter_h
-
-    area_b1 = (x1_max-x1_min)*(y1_max-y1_min)
-    area_b2 = (x2_max-x2_min)*(y2_max-y2_min)
-
-    area_u =area_b1+area_b2 - inter_a
-    iou = inter_a/area_u if area_u > 0 else 0.0
-    return iou 
-
-# detection module test
-def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
-    pos = 0 if scenario=="scenario1" else 1
-    ori = airsim.Quaternionr(
-    x_val=POSITIONS[pos][3],
-    y_val=POSITIONS[pos][4],
-    z_val=POSITIONS[pos][5],
-    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
-
-    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
-    img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
-    pillow_img = Image.fromarray(img)
-    np_arr = np.array(pillow_img)
-    # save image
-    cv2.imwrite("tests/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
-    # surface crop
-    depth_map = processor.depth_analysis_depth_anything(pillow_img)
-    img2 = np.array(depth_map)
-    # get boxes of surfaces
-    areas = processor.segment_surfaces(img2, np_arr)
-    # crop
-    img_copy = np_arr.copy()
-    processor.crop_surfaces(areas, img_copy)           
-    
-    selected_area = []
-    curr_max = 0.0
-    box1 = (GROUND_TRUTH[scenario]['x_min'],GROUND_TRUTH[scenario]['x_max'],GROUND_TRUTH[scenario]['y_min'],GROUND_TRUTH[scenario]['y_max'])
-    for ar in areas:
-        score = iou(box1, ar)
-        if score > curr_max:
-            curr_max = score
-            if len(selected_area) > 0:
-                selected_area.pop()
-            selected_area.append(ar)
-    print(selected_area)            
-    processor.crop_surfaces(selected_area,img_copy,f"test_{scenario}_{it_numb}")
-    data = {
-        "iteration":[it_numb],
-        "iou_score": [curr_max],
-        "crop_name": [f"test{it_numb}"],
-        "landing_site": [scenario]
-    }
-    record_module_data("detections", data)
-
-
-def lidar_detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, scenario="scenario1" ):
-    pos = 0 if scenario=="scenario1" else 1
-    ori = airsim.Quaternionr(
-    x_val=POSITIONS[pos][3],
-    y_val=POSITIONS[pos][4],
-    z_val=POSITIONS[pos][5],
-    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
-
-    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    pcd_name = f'pc_{it_numb}_{scenario}'
-    img_name = f'img_{it_numb}_{scenario}'
-    get_image_lidar(pcd_name, img_name, drone.client)
-    areas = find_roofs(pcd_name+'.pcd',img_name+'.jpg')
-    box1 = (GROUND_TRUTH[scenario]['x_min'],GROUND_TRUTH[scenario]['x_max'],GROUND_TRUTH[scenario]['y_min'],GROUND_TRUTH[scenario]['y_max'])
-    selected_area = []
-    for area in areas:
-        score = iou(box1, area[0])
-        if score > curr_max:
-            curr_max = score
-            if len(selected_area) > 0:
-                selected_area.pop()
-            selected_area.append(area)
-    print(selected_area)            
-    img_copy = cv2.imread(f"images/{img_name}.jpg",cv2.COLOR_BGR2RGB)
-    processor.crop_surfaces(selected_area,img_copy,f"lidar_test_{scenario}_{it_numb}")
-    data = {
-        "iteration":[it_numb],
-        "iou_score": [curr_max],
-        "crop_name": [f"test{it_numb}"],
-        "landing_site": [scenario]
-    }
-    record_module_data("detections_lidar", data)
-        
-
-def llm_test(agent:GPTAgent, it_numb, scenario="scenario1", expanded="" ):
-    # cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB) ,
-    models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
-    detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/{scenario}", f)), cv2.COLOR_BGR2RGB))              
-    for f in os.listdir(f"./samples/{scenario}")]
-    for m in models:
-        prompt = PROMPTS["conversation-1"]
-        full_img = []
-        if(SEND_FULL):
-            full_img = cv2.imread(f"./samples/ground_truth_{scenario}.jpg", cv2.COLOR_BGR2RGB)
-            prompt = PROMPTS["conversation-1-2"]
-            expanded = "FI"
-        if(MARGINS):
-            detections = [Image.fromarray(cv2.cvtColor(cv2.imread(os.path.join(f"./samples/{scenario}-{expanded}", f)), cv2.COLOR_BGR2RGB))              
-                for f in os.listdir(f"./samples/{scenario}-{expanded}")]
-            select_pil_image, index, ans, ranks, resp_time = agent.mllm_call(detections, prompt, full_img=full_img, model=m)
-        else:
-            select_pil_image, index, ans, ranks, resp_time = agent.mllm_call(detections, prompt, full_img=full_img, model=m) 
-        
-        select_pil_image.save(f"tests/landing_zones/{m}_{scenario}_selected_{it_numb}_{expanded}.jpg")
-        data = {
-            "iteration":[it_numb],
-            "selected_image": [f'{m}_{scenario}_selected_{it_numb}_{expanded}.jpg'],
-            "correct": 0,
-            "reason": [ans],
-            "response_time": [resp_time],
-            "ranks": [ranks],
-            "scenario": [scenario]
-            
-        }
-        record_module_data(f'mllm_resp_{m}_{expanded}', data)
-
-def llm_test_closeup(agent:GPTAgent, it_numb, processor,scenario="scenario1" ):
-
-    models = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano']
-    
-    detections, _ = processor.crop_five_cuadrants(f"./samples/gt_closeup_{scenario}.jpg")
-    detections = [detections[4]]
-    for m in models:
-        _, index, ans, ranks, response_time = agent.mllm_call(detections, PROMPTS["conversation-2"], model=m) 
-        
-        # select_pil_image.save(f"tests/landing_zones/close_up{scenario}_selected_{it_numb}.jpg")
-        print("the index is", index)
-        correct = 1 if index == 1 else 0
-        data = {
-            "iteration":[it_numb],
-            "selected_image": [f'{scenario}_selected_{it_numb}.jpg'],
-            "correct": correct,
-            "reason": [ans],
-            "response_time": [response_time],
-            "ranks": [ranks],
-            "scenario": [scenario]
-            
-        }
-        record_module_data(f'mllm_resp_closeup_{m}', data)
-    
-def landing_test(drone:DroneMovement, it_numb, processor, scenario="scenario1"):
-
-    pos = 0 if scenario=="scenario1" else 1
-    ori = airsim.Quaternionr(
-    x_val=POSITIONS[pos][3],
-    y_val=POSITIONS[pos][4],
-    z_val=POSITIONS[pos][5],
-    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
-
-    px, py = GROUND_TRUTH[scenario]['center_x'], GROUND_TRUTH[scenario]['center_y'] 
-    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    tx, ty, tz = lidar_movement(drone.client, processor, px,py)
-    drone.client.moveToPositionAsync(tx, ty, tz, 3).join();time.sleep(5)
-    drone.move_to_z(tz)
-    current_pose = drone.client.getMultirotorState().kinematics_estimated.position
-    actual_x, actual_y = current_pose.x_val, current_pose.y_val
-
-    dist = math.sqrt((actual_x - GROUND_TRUTH[scenario]['x_real'])**2 + (actual_y - GROUND_TRUTH[scenario]['y_real'])**2)
-    print("distance to x y ",dist)
-    data = {
-        "iteration":[it_numb],
-        "actual_x": [actual_x],
-        "actual_y": [actual_y],
-        "distance_point": [dist],
-        "scenario": [scenario]
-    }
-    record_module_data('landing', data)
-
-def load_halton_points():
-    """
-    
-    """
-    loaded_tuples = []
-    with open("points_halton.txt", "r") as f:
-        for line in f:
-            x, y = line.strip().split(",")
-            loaded_tuples.append((float(x), float(y)))
-    return loaded_tuples
-
 def main_pipeline():
-    
+    # initial_movement, model, agent, processor, drone, crop_setting
     # First load the prompt
     prompt = PROMPTS[PROMPT_NAME]
 
@@ -365,32 +163,16 @@ def main_pipeline():
    
     iterations = 20 if TESTING else 1
 
-    if TESTING and INDIVIFUAL_MOD:
-        scenes = ["scenario1","scenario2"]
-        for scene in scenes:
-            # for i in range(iterations):
-            #     detections_test(processor, drone, i , scenes)"30","40","50","60"
-            for i in range(iterations):
-                # margs = ["50"]
-                # for marg in margs:
-                    llm_test(MLLM_Agent, i, scenario=scene, expanded="")
-            # for i in range(iterations):
-            #     llm_test_closeup(MLLM_Agent, i, processor, scenario=scene)
-            # for i in range(iterations):
-            #     landing_test(drone, i, processor, scenario=scenes)
-        return
-            
-
     # clear and create data
     if DELETE_LZ: clear_dirs()
     create_subdirs() # 
-    if HALTON_POS:
-        sites = load_halton_points()
+    # if HALTON_POS:
+    #     sites = load_halton_points()
     models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
     for m in models:
 
         # start pipeline CHECK ITERATION NUMBERS AND MODELS!!
-        for i in range(12,iterations):    
+        for i in range(0,iterations):    
             # Position the drone
             if MOVE_FIXED:
                 ori = None
@@ -463,14 +245,10 @@ def main_pipeline():
                                     for f in os.listdir("./"+DIRS[1])]
                         # act if the distance to the ground is a threshold or there are no detections
                         if not detections or curr_height < 5 :
-                            detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
-                    # only crop does not use depth map
-                    elif ONLY_CROP_PIPELINE:
-                        detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
-                    
+                            detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")                  
                     # ask LLM for surface
                     select_pil_image, index, ans, ranks, resp_time = MLLM_Agent.mllm_call(detections,  PROMPTS["conversation-1"], model=m )# full_img=np_arr, 
-                    # get the pixels for the selected image
+                    # get the pixels for the selected image if there are none from depth map
                     if bounding_boxes:
                         print("the index of the image",index)
                         try:
@@ -495,7 +273,7 @@ def main_pipeline():
                         print("pixels",px,py)
                     # do the IPM to get the coordinates
                     pose = drone.client.getMultirotorState().kinematics_estimated.position
-                    surface_height = drone.get_rangefinder()
+                    
                     if LANDING_ZONE_DEPTH_ESTIMATED:
                         tx, ty, tz = lidar_movement(drone.client, processor, px, py)
                         #processor.inverse_perspective_mapping(pose, px, py, landing_zone_height)
@@ -554,131 +332,6 @@ def main_pipeline():
                     create_subdirs()
                 print("ending iteration ", i)
 
-def embeddings():
-    from reasons import final_des
-    with open(API_FILE, "r") as f:
-            api_key = f.read().strip()
-    client = OpenAI(api_key=api_key)
-    embeddings = []
-    for text in final_des:
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text
-        )
-        embeddings.append(response.data[0].embedding)
-    plt.rcParams.update({
-        "font.family": "serif",
-        "text.usetex": False,
-        "axes.edgecolor": "black",
-        "axes.linewidth": 0.8,
-        "axes.spines.right": False,
-        "axes.spines.top": False,
-        "grid.color": "gray",
-        "grid.linestyle": "--",
-        "grid.linewidth": 0.5,
-        "legend.frameon": True,
-    })
-    embeddings = np.array(embeddings)
-    # min_samples = 2
-    # neighbors = NearestNeighbors(n_neighbors=min_samples, metric="cosine")
-    # neighbors_fit = neighbors.fit(embeddings)
-    # distances, indices = neighbors_fit.kneighbors(embeddings)
-
-    from sklearn.decomposition import PCA
-
-    pca = PCA().fit(embeddings)   # X = embeddings
-    explained = np.cumsum(pca.explained_variance_ratio_)
-
-    # plt.plot(np.arange(1, len(explained)+1), explained, marker='o')
-    # plt.xlabel("Number of components")
-    # plt.ylabel("Cumulative explained variance")
-    # plt.grid()
-    # plt.show()
-
-    # pca with 13 dimensions then clustering in the final rankings (19 components)
-    # variance gives 30 componentes -> 90% of variance, and we are sending 60
-    pca = PCA(n_components=30)
-    X_pca = pca.fit_transform(embeddings) 
-    from sklearn.metrics import silhouette_score
-
-    for k in range(2, 10):
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(embeddings)
-        score = silhouette_score(X_pca, labels)
-        print(f"k={k}, silhouette score={score:.3f}")
-    
-    kmeans2 = KMeans(n_clusters=2, random_state=42).fit(X_pca)
-    kmeans3 = KMeans(n_clusters=3, random_state=42).fit(X_pca)
-    labels2 = kmeans2.labels_
-    labels3 = kmeans3.labels_
-
-    # Reduce to 2D PCA for visualization only
-    pca_vis = PCA(n_components=2, random_state=42)
-    embeddings_2d = pca_vis.fit_transform(X_pca)
-
-    # Plot K=2
-    plt.figure(figsize=(12,5))
-
-    # plt.subplot(1,2,1)
-    # plt.scatter(embeddings_2d[:,0], embeddings_2d[:,1], c=labels2, cmap="tab10", s=80)
-    # for i in range(len(embeddings_2d)):
-    #     plt.annotate(f"P{i}", (embeddings_2d[i,0]+0.01, embeddings_2d[i,1]+0.01))
-    # plt.title("KMeans Clusters (k=2)")
-
-    # # Plot K=3
-    # plt.subplot(1,2,2)
-    custom_names = {
-    2: "Cluster 2", #Single Candidate
-    1: "Cluster 1", #Diverse Candidates
-    0: "Cluster 0"  #Similar Candidates
-}
-    scatter = plt.scatter(embeddings_2d[:,0], embeddings_2d[:,1], c=labels3, cmap="tab10", s=80)
-    # for i in range(len(embeddings_2d)):
-    #     plt.annotate(f"P{i}", (embeddings_2d[i,0]+0.01, embeddings_2d[i,1]+0.01))
-    handles, _ = scatter.legend_elements()
-    plt.legend(handles, [custom_names[i] for i in range(3)], fontsize=14, loc='upper right')
-    plt.xlabel("PC1", fontsize=18)
-    plt.ylabel("PC2", fontsize=18)
-    plt.xticks(fontsize=16)
-    plt.yticks(fontsize=16)
-    # plt.title("KMeans Clusters (k=3)")
-
-    plt.show()
-
-    df = pd.DataFrame({
-    "paragraph": final_des,
-    "cluster_k2": labels2,
-    "cluster_k3": labels3
-    })
-
-    # Save to CSV
-    df.to_csv("confirmation_clusters.csv", index=False)
-    # num_clusters = 2  # <-- choose the number of clusters you want
-    # kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-    # labels = kmeans.fit_predict(embeddings)
-
-    # # 5. Print results
-    # for para, label in zip(reasons, labels):
-    #     print(f"Cluster {label}: {para[:100]}...")
-    # for label in labels:
-    #     print(label)
-    # from sklearn.decomposition import PCA
-    # pca = PCA(n_components=2, random_state=42)
-    # reduced = pca.fit_transform(embeddings)
-
-    # # Plot with cluster labels
-    # plt.figure(figsize=(8, 6))
-    # plt.scatter(reduced[:, 0], reduced[:, 1], c=labels, cmap="tab10", s=80)
-
-    # # Annotate each point with its paragraph index
-    # for i, txt in enumerate(reasons):
-    #     plt.annotate(f"P{i}", (reduced[i, 0]+0.01, reduced[i, 1]+0.01))
-
-    # plt.xlabel("PCA Component 1")
-    # plt.ylabel("PCA Component 2")
-    # plt.title("PCA Visualization of Paragraph Clusters")
-    # plt.show()
 
 if __name__ == "__main__":
-    embeddings()
-    #main_pipeline()
+    main_pipeline()

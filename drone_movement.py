@@ -86,7 +86,7 @@ class DroneMovement:
         listener.start()
         self.running = True
         self.command_queue = []
-        print("Controls: w/s = forward/back | a/d = left/right | q/e = up/down | x = exit | k = position| p = take pictures")
+        print("Controls: w/s = forward/back | a/d = left/right | q/e = up/down | x = exit | k = position | p = take pictures | x = exit")
         while self.running:
             if self.command_queue:
                 k = self.command_queue.pop(0)

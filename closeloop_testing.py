@@ -37,6 +37,11 @@ POSITIONS = [(-103.01084899902344, 20.440589904785156, -119.817626953125, 9.8945
 # -----------------------------------------
 SEND_FULL = False # Attach the full image to the request
 MARGINS = False # Add additional context to the detected surface
+DEBUG = False # 
+# LVLM Configurations
+# -----------------------------------------
+PROMPT_NAME = 'prompt1'
+API_FILE = "my-k-api.txt"
 
 
 def crop_gt_surfaces(img_width, img_height, fov, scale, scene="1"):
@@ -317,6 +322,165 @@ def load_halton_points():
             loaded_tuples.append((float(x), float(y)))
     return loaded_tuples
 
+def modules_testing(iterations = 20, margs = ['']):
+    prompt = PROMPTS[PROMPT_NAME]
+
+    MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
+    processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
+    drone = DroneMovement()
+    scenes = ["scenario1","scenario2"]
+    for scene in scenes:
+        for i in range(iterations):
+            detections_test(processor, drone, i , scenes)
+        for i in range(iterations):
+            for marg in margs:
+                llm_test(MLLM_Agent, i, scenario=scene, expanded=marg)
+        for i in range(iterations):
+            llm_test_closeup(MLLM_Agent, i, processor, scenario=scene)
+        for i in range(iterations):
+            landing_test(drone, i, processor, scenario=scenes)    
+
+def embeddings():
+    from reasons import final_des
+    with open(API_FILE, "r") as f:
+            api_key = f.read().strip()
+    client = OpenAI(api_key=api_key)
+    embeddings = []
+    for text in final_des:
+        response = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text
+        )
+        embeddings.append(response.data[0].embedding)
+    plt.rcParams.update({
+        "font.family": "serif",
+        "text.usetex": False,
+        "axes.edgecolor": "black",
+        "axes.linewidth": 0.8,
+        "axes.spines.right": False,
+        "axes.spines.top": False,
+        "grid.color": "gray",
+        "grid.linestyle": "--",
+        "grid.linewidth": 0.5,
+        "legend.frameon": True,
+    })
+    embeddings = np.array(embeddings)
+    # min_samples = 2
+    # neighbors = NearestNeighbors(n_neighbors=min_samples, metric="cosine")
+    # neighbors_fit = neighbors.fit(embeddings)
+    # distances, indices = neighbors_fit.kneighbors(embeddings)
+
+    from sklearn.decomposition import PCA
+
+    pca = PCA().fit(embeddings)   # X = embeddings
+    explained = np.cumsum(pca.explained_variance_ratio_)
+
+    # plt.plot(np.arange(1, len(explained)+1), explained, marker='o')
+    # plt.xlabel("Number of components")
+    # plt.ylabel("Cumulative explained variance")
+    # plt.grid()
+    # plt.show()
+
+    # pca with 13 dimensions then clustering in the final rankings (19 components)
+    # variance gives 30 componentes -> 90% of variance, and we are sending 60
+    pca = PCA(n_components=30)
+    X_pca = pca.fit_transform(embeddings) 
+    from sklearn.metrics import silhouette_score
+
+    for k in range(2, 10):
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(embeddings)
+        score = silhouette_score(X_pca, labels)
+        print(f"k={k}, silhouette score={score:.3f}")
+    
+    kmeans2 = KMeans(n_clusters=2, random_state=42).fit(X_pca)
+    kmeans3 = KMeans(n_clusters=3, random_state=42).fit(X_pca)
+    labels2 = kmeans2.labels_
+    labels3 = kmeans3.labels_
+
+    # Reduce to 2D PCA for visualization only
+    pca_vis = PCA(n_components=2, random_state=42)
+    embeddings_2d = pca_vis.fit_transform(X_pca)
+
+    # Plot K=2
+    plt.figure(figsize=(12,5))
+
+    # plt.subplot(1,2,1)
+    # plt.scatter(embeddings_2d[:,0], embeddings_2d[:,1], c=labels2, cmap="tab10", s=80)
+    # for i in range(len(embeddings_2d)):
+    #     plt.annotate(f"P{i}", (embeddings_2d[i,0]+0.01, embeddings_2d[i,1]+0.01))
+    # plt.title("KMeans Clusters (k=2)")
+
+    # # Plot K=3
+    # plt.subplot(1,2,2)
+    custom_names = {
+    2: "Cluster 2", #Single Candidate
+    1: "Cluster 1", #Diverse Candidates
+    0: "Cluster 0"  #Similar Candidates
+}
+    scatter = plt.scatter(embeddings_2d[:,0], embeddings_2d[:,1], c=labels3, cmap="tab10", s=80)
+    # for i in range(len(embeddings_2d)):
+    #     plt.annotate(f"P{i}", (embeddings_2d[i,0]+0.01, embeddings_2d[i,1]+0.01))
+    handles, _ = scatter.legend_elements()
+    plt.legend(handles, [custom_names[i] for i in range(3)], fontsize=14, loc='upper right')
+    plt.xlabel("PC1", fontsize=18)
+    plt.ylabel("PC2", fontsize=18)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    # plt.title("KMeans Clusters (k=3)")
+
+    plt.show()
+
+    df = pd.DataFrame({
+    "paragraph": final_des,
+    "cluster_k2": labels2,
+    "cluster_k3": labels3
+    })
+
+    # Save to CSV
+    df.to_csv("confirmation_clusters.csv", index=False)
+    # num_clusters = 2  # <-- choose the number of clusters you want
+    # kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+    # labels = kmeans.fit_predict(embeddings)
+
+    # # 5. Print results
+    # for para, label in zip(reasons, labels):
+    #     print(f"Cluster {label}: {para[:100]}...")
+    # for label in labels:
+    #     print(label)
+    # from sklearn.decomposition import PCA
+    # pca = PCA(n_components=2, random_state=42)
+    # reduced = pca.fit_transform(embeddings)
+
+    # # Plot with cluster labels
+    # plt.figure(figsize=(8, 6))
+    # plt.scatter(reduced[:, 0], reduced[:, 1], c=labels, cmap="tab10", s=80)
+
+    # # Annotate each point with its paragraph index
+    # for i, txt in enumerate(reasons):
+    #     plt.annotate(f"P{i}", (reduced[i, 0]+0.01, reduced[i, 1]+0.01))
+
+    # plt.xlabel("PCA Component 1")
+    # plt.ylabel("PCA Component 2")
+    # plt.title("PCA Visualization of Paragraph Clusters")
+    # plt.show()
+
+
+def test_full_pipeline(initial_mov:str, iterations, position, scenario="scenario1"):
+
+    if initial_mov.lower() == 'scenario':
+        if scenario.lower() == 'scenario1':
+            scenario_pos = airsim.Quaternionr(
+                    x_val=POSITIONS[0][3],
+                    y_val=POSITIONS[0][4],
+                    z_val=POSITIONS[0][5],
+                    w_val=POSITIONS[0][6])
+        else:
+            scenario_pos = airsim.Quaternionr(
+                    x_val=POSITIONS[1][3],
+                    y_val=POSITIONS[1][4],
+                    z_val=POSITIONS[1][5],
+                    w_val=POSITIONS[1][6])
     
 def main():
     crop_gt_surfaces(960,540,90, 1, scene=1)
