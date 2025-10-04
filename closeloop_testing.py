@@ -10,11 +10,13 @@ import numpy as np
 import pandas as pd
 import cosysairsim as airsim
 import math
+import time
 from drone_movement import DroneMovement
 from MLLM_Agent import GPTAgent
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
 from LiDAR.lidar_baseline import LidarMovement
+from close_loop import main_pipeline
 
 ## Camera settings
 # -----------------------------------------
@@ -103,17 +105,18 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     """
     Test the detection module by taking a picture in airsim, can be changed by suppliying the ground truth
     """
-    pos = 0 if scenario=="scenario1" else 1
-    ori = airsim.Quaternionr(
-    x_val=POSITIONS[pos][3],
-    y_val=POSITIONS[pos][4],
-    z_val=POSITIONS[pos][5],
-    w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
+    # pos = 0 if scenario=="scenario1" else 1
+    # ori = airsim.Quaternionr(
+    # x_val=POSITIONS[pos][3],
+    # y_val=POSITIONS[pos][4],
+    # z_val=POSITIONS[pos][5],
+    # w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
 
-    drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
-    resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
-    img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
-    pillow_img = Image.fromarray(img)
+    # drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
+    # resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
+    img_sample = cv2.imread(f"./samples/ground_truth_{scenario}.jpg", cv2.COLOR_BGR2RGB)
+    # img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
+    pillow_img = Image.fromarray(img_sample)
     np_arr = np.array(pillow_img)
     # save image
     cv2.imwrite("tests/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
@@ -466,24 +469,49 @@ def embeddings():
     # plt.show()
 
 
-def test_full_pipeline(initial_mov:str, iterations, position, scenario="scenario1"):
+def test_full_pipeline(iteration, mode="scenario1", save = False):
 
-    if initial_mov.lower() == 'scenario':
-        if scenario.lower() == 'scenario1':
-            scenario_pos = airsim.Quaternionr(
-                    x_val=POSITIONS[0][3],
-                    y_val=POSITIONS[0][4],
-                    z_val=POSITIONS[0][5],
-                    w_val=POSITIONS[0][6])
-        else:
-            scenario_pos = airsim.Quaternionr(
-                    x_val=POSITIONS[1][3],
-                    y_val=POSITIONS[1][4],
-                    z_val=POSITIONS[1][5],
-                    w_val=POSITIONS[1][6])
+    
+    if mode.lower() == 'scenario1':
+        position = (POSITIONS[0][0],POSITIONS[0][1],POSITIONS[0][2])
+        orientation = airsim.Quaternionr(
+                x_val=POSITIONS[0][3],
+                y_val=POSITIONS[0][4],
+                z_val=POSITIONS[0][5],
+                w_val=POSITIONS[0][6])
+    elif mode.lower() == 'scenario2':
+        position = (POSITIONS[0][0],POSITIONS[0][1],POSITIONS[0][2])
+        orientation = airsim.Quaternionr(
+                x_val=POSITIONS[1][3],
+                y_val=POSITIONS[1][4],
+                z_val=POSITIONS[1][5],
+                w_val=POSITIONS[1][6])    
+    elif mode.lower() == 'halton':
+        sites = load_halton_points()
+        halton_x = sites[iteration][0]
+        halton_y = sites[iteration][1]
+        position = (halton_x, halton_y, -130)
+        orientation = None
+    else:
+        return Exception("Not a valid option")
+    # create necessary classes
+    prompt = PROMPTS[PROMPT_NAME]
+    MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
+    processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
+    drone = DroneMovement()
+    models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
+    
+    for model in models:
+            main_pipeline(model,MLLM_Agent,processor,drone,position,orientation,1,iteration,save)
+
     
 def main():
-    crop_gt_surfaces(960,540,90, 1, scene=1)
+    # processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
+    # detections_test(processor,None,1)
+    # crop_gt_surfaces(960,540,90, 1, scene=1)
+    iterations = 20
+    for i in range(iterations):
+        test_full_pipeline(i,"scenario1")
 
 if __name__ == "__main__":
     main()

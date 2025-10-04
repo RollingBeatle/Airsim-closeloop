@@ -25,24 +25,29 @@ class DroneMovement:
         self.debug = debug
     
     def position_drone(self, fixed=True, position=(0,0,0), ori=None):
-    # Position the drone randomly in demo
+        """Postion the drone in the map"""
+        # No initial position
+        if position==None and ori==None:
+            return    
+        # Position the drone randomly in demo
         if fixed:
             x,y,z = self.initial_pos
             self.client.moveToPositionAsync(x,y,z,3).join()
         
         else:
-            z0 = -np.random.uniform(230,250)
+            # z0 = -np.random.uniform(230,250)
+            if ori:
+                pos = self.client.getMultirotorState().kinematics_estimated.position
+                pose = airsim.Pose(pos, ori)
+                self.client.simSetVehiclePose(pose,True)
+                time.sleep(5)
+            z0 = -np.random.uniform(100,120)
             pose = self.client.getMultirotorState().kinematics_estimated.position
             self.client.moveToZAsync(pose.z_val+z0, 2).join(); time.sleep(2)
             x,y,z = position
             
             self.client.moveToPositionAsync(x,y,z0,3).join(); time.sleep(5)
             self.client.moveToPositionAsync(x,y,z,3).join(); time.sleep(5)
-            if ori:
-                pos = self.client.getMultirotorState().kinematics_estimated.position
-                pose = airsim.Pose(pos, ori)
-                self.client.simSetVehiclePose(pose,True)
-                time.sleep(2)
         
 
     def move_drone(self, tx, ty, tz):
