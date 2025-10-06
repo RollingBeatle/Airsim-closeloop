@@ -12,10 +12,10 @@ The main file to run is ```close_loop.py```, this will create auxiliary director
 
 ## Testing 
 As a testing environment we use the Unreal Environment *City Sample* with a few changes in the rooftops of some of the tested buildings, originally the rooftops or both buildings are empty, for our testing purposes we added some obstructions like vents or rubble that are available through the map. Our current testing sites are:
-![Scenario 1](LVLMRecovery/src/samples/ground_truth_scenario_1.jpg)
+![Scenario 1](LVLMRecovery/src/samples/general/ground_truth_scenario_1.jpg)
 
 
-![Scenario 2](LVLMRecovery/src/ground_truth_scenario_2.jpg)
+![Scenario 2](LVLMRecovery/src/general/ground_truth_scenario_2.jpg)
 
 - As the coordinate system is dependent on the site the drone spawn the object `PlayerStart` has to be moved depending the scenario
 - `PlayerStart` coordinates for Scenario 1: `(X=69789.929909,Y=-14527.701608,Z=158.775536)`
