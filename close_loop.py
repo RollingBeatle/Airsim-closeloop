@@ -22,7 +22,7 @@ from LiDAR.lidar_baseline import LidarMovement
 DEBUG = False
 # Drone Camera Settings
 # -----------------------------------------
-CAM_NAME      = "frontcamera"
+CAM_NAME = "frontcamera"
 # Directories Configuration
 # -----------------------------------------
 DELETE_LZ = True
@@ -42,6 +42,7 @@ def create_subdirs():
 
 # records experiment data for full pipeline
 def start_data_rec(dirs, it, rounds, just, ranks, resp_time):
+    """record data into a csv file"""
     dirs = dirs+".csv"
     check_dir = os.path.isfile(dirs)
     print(check_dir)
@@ -53,17 +54,6 @@ def start_data_rec(dirs, it, rounds, just, ranks, resp_time):
         "time": [resp_time],
         "landing_site": 0
     }
-    df = pd.DataFrame(data)
-    if check_dir:
-        df.to_csv(dirs, mode="a", header=False, index=False)
-    else:
-        df.to_csv(dirs, index=False)
-
-# Saves the data of the experiment to a csv file
-def record_module_data(dirs, data):
-    dirs = dirs+".csv"
-    check_dir = os.path.isfile(dirs)
-    print(f"Does the file for module {dirs} alredy exist:",check_dir)
     df = pd.DataFrame(data)
     if check_dir:
         df.to_csv(dirs, mode="a", header=False, index=False)
@@ -117,7 +107,9 @@ def lidar_movement(client:airsim.MultirotorClient, processor:ImageProcessing, px
 
 def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, drone:DroneMovement, position:Tuple[float, float, float],
                    orientation:airsim.Quaternionr, crop_setting:float, tracker:int, testing:bool):
- 
+    """
+    Engages the LVLM assisted pipeline in the current location
+    """
     # clear and create data
     if DELETE_LZ: clear_dirs()
     create_subdirs() # 
@@ -154,11 +146,11 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
         # act if the distance to the ground is a threshold or there are no detections
         if not detections or curr_height < 5 :
             detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")                  
-        # ask LLM for surface
+        # ask LLM for surface stage #1 ranking
         select_pil_image, index, ans, ranks, resp_time = MLLM_Agent.mllm_call(detections,  PROMPTS["conversation-1"], model=model )# full_img=np_arr, 
         # get the pixels for the selected image if there are none from depth map
         if bounding_boxes:
-            print("the index of the image",index)
+            # check if the bounding box actually exist and throw an error if they don't
             try:
                 px = ((bounding_boxes[index][3] + bounding_boxes[index][1])//2) 
                 py = ((bounding_boxes[index][2] + bounding_boxes[index][0])//2) 
@@ -168,30 +160,29 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
                 llm_error = True
                 break
             print("pixels",px,py)
-
+        # check if the selection output was an image, there should at least be one option
         if select_pil_image == None:
-
+            # there is no suitable output so it means an error or hallucination, this is by design in this version
             print("selection falied, either a hallucination (or bad output) or llm decided that there is no suitable space")
             start_data_rec(f"failed-iterations_{model}",tracker,request_counter,ans, ranks, resp_time)
             llm_error = True
             break
+        # match the selected image to its corresponding area
         px, py = processor.match_areas(areas,select_pil_image)
         print("destination pixels",px,py)
         # do the IPM to get the coordinates
         pose = drone.client.getMultirotorState().kinematics_estimated.position
-        
         tx, ty, tz = lidar_movement(drone.client, processor, px, py)
-
+        # check if testing mode on to record results
         if testing:
             cv2.imwrite(f"tests/{model}/full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
             select_pil_image.save(f"tests/{model}/selected_surface_req{request_counter}_it_{tracker}.jpg")
             start_data_rec(f"pipeline_{model}",tracker,request_counter,ans, ranks, resp_time)
-        # start descent or move to the x,y in crop pipeline
-                
+        # confirmation stage                
         if curr_height >= 5:
-
+            # move to the desired x and y
             drone.client.moveToPositionAsync(tx, ty, pose.z_val, 3).join();time.sleep(5)
-            # crop for z displacement
+            # get the center subsquare of the image to confirm the suitability of the landing site
             resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
             img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
             pillow_img = Image.fromarray(img)
@@ -199,20 +190,23 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
             # save image
             cv2.imwrite("images/mono.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
             detections, bounding_boxes = processor.crop_five_cuadrants("images/mono.jpg")
+            # last image of the crop correspond to the center
             detections = [detections[4]]
             select_pil_image, index, ans, ranks, resp_time = MLLM_Agent.mllm_call(detections,  PROMPTS["conversation-2"], model=model) 
-            # checking if the selected space is the center
+            # check that the response is successful to determine that the drone can start descend
             if index == 1:
                 curr_height = drone.move_to_z(pose.z_val)
         else:
-            # moving to desired z
+            # the drone is close enough to the surface to land
             curr_height = drone.move_drone(tx,ty,tz)
-        # saving test results
+        # if testing mode active saving results
         if testing:
             cv2.imwrite(f"tests/{model}/second_full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
             select_pil_image.save(f"tests/{model}/second_selected_closeup_req{request_counter}_it_{tracker}.jpg")
             start_data_rec(f"pipeline_{model}",tracker,request_counter,ans, ranks, resp_time)
+        # adding to the request counter
         request_counter+=1
+        # check if limit was reach and the selection failed
         if request_counter == 10:
                 print("selection falied, either a hallucination or llm decided that there is no suitable space")
                 start_data_rec(f"request-out-iterations-{model}",tracker,request_counter,ans, ranks, resp_time)
@@ -223,6 +217,7 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
             input("To continue and delete images, press enter")
         clear_dirs()
         create_subdirs()
+    # finally engage the land command
     if not llm_error:
         drone.land_drone()
     else:

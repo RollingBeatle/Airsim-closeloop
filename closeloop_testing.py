@@ -105,14 +105,6 @@ def detections_test(processor:ImageProcessing, drone:DroneMovement, it_numb, sce
     """
     Test the detection module by taking a picture in airsim, can be changed by suppliying the ground truth
     """
-    # pos = 0 if scenario=="scenario1" else 1
-    # ori = airsim.Quaternionr(
-    # x_val=POSITIONS[pos][3],
-    # y_val=POSITIONS[pos][4],
-    # z_val=POSITIONS[pos][5],
-    # w_val=POSITIONS[pos][6] ) if scenario =="scenario1" else None
-
-    # drone.position_drone(fixed=False,position=(POSITIONS[pos][0],POSITIONS[pos][1],POSITIONS[pos][2]), ori=ori)
     # resp = drone.client.simGetImages([airsim.ImageRequest(CAM_NAME,airsim.ImageType.Scene,False,False)])[0]
     img_sample = cv2.imread(f"./samples/ground_truth_{scenario}.jpg", cv2.COLOR_BGR2RGB)
     # img = np.frombuffer(resp.image_data_uint8, np.uint8).reshape(resp.height,resp.width,3)
@@ -326,6 +318,7 @@ def load_halton_points():
     return loaded_tuples
 
 def modules_testing(iterations = 20, margs = ['']):
+    """Test all the modules"""
     prompt = PROMPTS[PROMPT_NAME]
 
     MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
@@ -344,6 +337,7 @@ def modules_testing(iterations = 20, margs = ['']):
             landing_test(drone, i, processor, scenario=scenes)    
 
 def embeddings():
+    """Get information from embeddings for clustering using the OpenAI API"""
     from reasons import final_des
     with open(API_FILE, "r") as f:
             api_key = f.read().strip()
@@ -470,7 +464,7 @@ def embeddings():
 
 
 def test_full_pipeline(iteration, mode="scenario1", save = False):
-
+    """Full pipeline testing on predetermined scenarios and halton points"""
     
     if mode.lower() == 'scenario1':
         position = (POSITIONS[0][0],POSITIONS[0][1],POSITIONS[0][2])
