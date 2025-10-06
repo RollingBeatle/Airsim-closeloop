@@ -13,7 +13,7 @@ from typing import Tuple
 from drone_movement import DroneMovement
 from MLLM_Agent import GPTAgent
 from image_processing import ImageProcessing
-from prompts_gt import PROMPTS
+from util.prompts_gt import PROMPTS
 
 from LiDAR.lidar_baseline import LidarMovement
 # CONFIGURATION VARIABLES

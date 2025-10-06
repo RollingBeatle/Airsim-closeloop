@@ -13,7 +13,7 @@ import json
 import time
 from PIL import Image
 from MLLM_Agent import GPTAgent
-from prompts_gt import PROMPTS, ENVELOPE
+from util.prompts_gt import PROMPTS, ENVELOPE
 import numpy as np
 
 # Configuration

@@ -1,7 +1,7 @@
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from openai import OpenAI
-from prompts_gt import GROUND_TRUTH, PROMPTS
+from util.prompts_gt import GROUND_TRUTH, PROMPTS
 from image_processing import ImageProcessing
 import cv2
 from PIL import Image
@@ -338,7 +338,7 @@ def modules_testing(iterations = 20, margs = ['']):
 
 def embeddings():
     """Get information from embeddings for clustering using the OpenAI API"""
-    from reasons import final_des
+    from util.reasons import final_des
     with open(API_FILE, "r") as f:
             api_key = f.read().strip()
     client = OpenAI(api_key=api_key)

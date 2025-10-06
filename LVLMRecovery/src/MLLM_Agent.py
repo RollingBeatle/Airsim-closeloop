@@ -10,10 +10,6 @@ import numpy as np
 import cv2 
 from PIL import Image
 from openai import OpenAI, NOT_GIVEN
-from tenacity import (
-    retry,
-    wait_random_exponential,
-)
 from io import BytesIO
 from pydantic import BaseModel
 from typing import List
@@ -75,9 +71,6 @@ class GPTAgent(MLLMAgent):
 
         clientGPT = OpenAI(api_key=api_key)
         self.client = clientGPT
-        # models = self.client.models.list()
-        # for mod in models:
-        #     print(mod)
         return clientGPT
     
     # Sends a call to the MLLM, 
