@@ -113,8 +113,9 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
     # clear and create data
     if DELETE_LZ: clear_dirs()
     create_subdirs() # 
+    if position:
     # position drone
-    drone.position_drone(fixed=False, position=position, ori=orientation)
+        drone.position_drone(fixed=False, position=position, ori=orientation)
     # start pipeline CHECK ITERATION NUMBERS AND MODELS!!
     llm_error = False
     print("Running the Pipeline")
