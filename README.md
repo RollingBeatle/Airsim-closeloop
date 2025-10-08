@@ -1,6 +1,7 @@
-# Autonomous Drone Recovery
+# LVLM Assisted Drone Landing
 This is the **prototype** for our ADR system based on the Airsim-CoSyS simulation environment. 
 ## Structure
+- `LVLMRecovery` folder contains all class and components of the pipeline
 - `airsim_settings` folder contains different configurations of the drones
 - `Tracking` includes an implementation of object tracking to position the drone on top of a desired point
 - `LiDAR` includes the data gathering tools to get the flat surfaces based on LiDAR

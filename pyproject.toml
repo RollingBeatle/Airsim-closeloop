@@ -1,13 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
+[tool.setuptools]
+package-dir = {"" = "LVLMRecovery/src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["LVLMRecovery/src"]
 
 [project]
 name = "LVLMRecovery"
 version = "0.1.0"
-description = "Short description of your package"
+description = "Autonomous drone landing system based on LVLMs"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "MIT License" }
 authors = [
   { name="Diego Ortiz"},
   { name="Mohit Agrawal"},
@@ -21,7 +27,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
   "cosysairsim ~= 3.3.0",
-  "matplotlib ~= 3.10.3"
+  "matplotlib ~= 3.10.3",
   "numpy >= 1.26.4",
   "opencv-python >= 4.11",
   "openai >= 1.93.0",
@@ -31,5 +37,5 @@ dependencies = [
   "pynput >= 1.8",
   "scikit-learn ~= 1.7.0",
   "transformers",
-  "torch",
+  "torch"
 ]
