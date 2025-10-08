@@ -16,7 +16,7 @@ from MLLM_Agent import GPTAgent
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
 from LiDAR.lidar_baseline import LidarMovement
-from LVLMRecovery.src.LVLMRecovery.recovery_pipeline import main_pipeline
+from LVLMRecovery.recovery_pipeline import main_pipeline
 
 ## Camera settings
 # -----------------------------------------
