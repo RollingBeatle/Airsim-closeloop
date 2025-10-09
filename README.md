@@ -23,7 +23,7 @@ to run the application, and a data recording flag
 
 ## Testing 
 As a testing environment we use the Unreal Environment *City Sample* with a few changes in the rooftops of some of the tested buildings. In closeloop_testing we provide the code to execute our testing in the individual modules as well as the full pipeline in two controlled scenarios. The buildings in our scenarios have been modified to add rubble and other obstacles to make the distinction between safe and unsafe clear for our LVLM. Our current testing sites are:
-![Scenario 1](src/LVLMRecovery/samples/ground_truth_scenario2.jpg)
+![Scenario 1](src/LVLMRecovery/samples/ground_truth_scenario1.jpg)
 
 ![Scenario 2](src/LVLMRecovery/samples/ground_truth_scenario2.jpg)
 
