@@ -66,7 +66,10 @@ def clear_dirs():
     curr_dir = os.getcwd()
     for dir in DIRS:
         del_dir = curr_dir+f'/{dir}'
-        shutil.rmtree(del_dir)
+        try:
+            shutil.rmtree(del_dir)
+        except Exception as e:
+            print("No dir to delete")
    
 # LiDAR based movement
 def lidar_movement(client:airsim.MultirotorClient, processor:ImageProcessing, px, py):
@@ -175,10 +178,11 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
         pose = drone.client.getMultirotorState().kinematics_estimated.position
         tx, ty, tz = lidar_movement(drone.client, processor, px, py)
         # check if testing mode on to record results
+        m = model.replace("/","")
         if testing:
-            cv2.imwrite(f"tests/{model}/full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
-            select_pil_image.save(f"tests/{model}/selected_surface_req{request_counter}_it_{tracker}.jpg")
-            start_data_rec(f"pipeline_{model}",tracker,request_counter,ans, ranks, resp_time)
+            cv2.imwrite(f"tests/{m}/full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+            select_pil_image.save(f"tests/{m}/selected_surface_req{request_counter}_it_{tracker}.jpg")
+            start_data_rec(f"pipeline_{m}",tracker,request_counter,ans, ranks, resp_time)
         # confirmation stage                
         if curr_height >= 5:
             # move to the desired x and y
@@ -202,15 +206,15 @@ def main_pipeline(model:str, MLLM_Agent:GPTAgent, processor:ImageProcessing, dro
             curr_height = drone.move_drone(tx,ty,tz)
         # if testing mode active saving results
         if testing:
-            cv2.imwrite(f"tests/{model}/second_full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
-            select_pil_image.save(f"tests/{model}/second_selected_closeup_req{request_counter}_it_{tracker}.jpg")
-            start_data_rec(f"pipeline_{model}",tracker,request_counter,ans, ranks, resp_time)
+            cv2.imwrite(f"tests/{m}/second_full_image_req{request_counter}_it_{tracker}.jpg", cv2.cvtColor(np_arr,cv2.COLOR_RGB2BGR))
+            select_pil_image.save(f"tests/{m}/second_selected_closeup_req{request_counter}_it_{tracker}.jpg")
+            start_data_rec(f"pipeline_{m}",tracker,request_counter,ans, ranks, resp_time)
         # adding to the request counter
         request_counter+=1
         # check if limit was reach and the selection failed
         if request_counter == 10:
                 print("selection falied, either a hallucination or llm decided that there is no suitable space")
-                start_data_rec(f"request-out-iterations-{model}",tracker,request_counter,ans, ranks, resp_time)
+                start_data_rec(f"request-out-iterations-{m}",tracker,request_counter,ans, ranks, resp_time)
                 llm_error = True
                 break
         # clearing data    

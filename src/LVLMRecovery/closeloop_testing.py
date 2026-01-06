@@ -12,11 +12,11 @@ import cosysairsim as airsim
 import math
 import time
 from drone_movement import DroneMovement
-from MLLM_Agent import GPTAgent
+from MLLM_Agent import GPTAgent, OpenRouterAgent, InterVLAgent
 from LiDAR.Get_data import get_image_lidar
 from LiDAR.LLM_subimages import find_roofs
 from LiDAR.lidar_baseline import LidarMovement
-from LVLMRecovery.recovery_pipeline import main_pipeline
+from recovery_pipeline import main_pipeline
 
 ## Camera settings
 # -----------------------------------------
@@ -463,7 +463,7 @@ def embeddings():
     # plt.show()
 
 
-def test_full_pipeline(iteration, mode="scenario1", save = False):
+def test_full_pipeline(iteration, mode="scenario1", save = False, agent_type = "GPT"):
     """Full pipeline testing on predetermined scenarios and halton points"""
     
     if mode.lower() == 'scenario1':
@@ -474,7 +474,7 @@ def test_full_pipeline(iteration, mode="scenario1", save = False):
                 z_val=POSITIONS[0][5],
                 w_val=POSITIONS[0][6])
     elif mode.lower() == 'scenario2':
-        position = (POSITIONS[0][0],POSITIONS[0][1],POSITIONS[0][2])
+        position = (POSITIONS[1][0],POSITIONS[1][1],POSITIONS[1][2])
         orientation = airsim.Quaternionr(
                 x_val=POSITIONS[1][3],
                 y_val=POSITIONS[1][4],
@@ -490,10 +490,20 @@ def test_full_pipeline(iteration, mode="scenario1", save = False):
         return Exception("Not a valid option")
     # create necessary classes
     prompt = PROMPTS[PROMPT_NAME]
-    MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
+    if agent_type == 'GPT':
+        MLLM_Agent = GPTAgent(prompt, API_FILE, debug=DEBUG)
+        models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
+    elif agent_type == 'OR':
+        MLLM_Agent = OpenRouterAgent(prompt, API_FILE, debug=DEBUG)
+        #'google/gemini-2.5-flash-preview-09-2025',,'google/gemini-2.5-flash-preview-09-2025'
+        models = ["mistralai/mistral-large-2512"]
+    elif agent_type == 'IVL':
+        MLLM_Agent = InterVLAgent("", API_FILE, debug=DEBUG)
+        models = ["internvl"]
+    else: 
+        return Exception("Not a valid agent")
     processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
     drone = DroneMovement()
-    models = ['gpt-5', 'gpt-5-mini','gpt-5-nano']
     
     for model in models:
             main_pipeline(model,MLLM_Agent,processor,drone,position,orientation,1,iteration,save)
@@ -503,9 +513,13 @@ def main():
     # processor = ImageProcessing(IMAGE_WIDTH,IMAGE_HEIGHT,FOV_DEGREES,debug=DEBUG)
     # detections_test(processor,None,1)
     # crop_gt_surfaces(960,540,90, 1, scene=1)
+    # scenario1 rain
+    # scenario1 fog
+    # scenario2 rain
+    # scenario2 fog
     iterations = 20
-    for i in range(iterations):
-        test_full_pipeline(i,"scenario1")
+    for i in range(19,iterations):
+        test_full_pipeline(i,"scenario2", agent_type="OR", save=True)
 
 if __name__ == "__main__":
     main()
